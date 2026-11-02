@@ -29,7 +29,7 @@ func dsn(cfg config.Database, multiStatements bool) string {
 func Open(cfg config.Database) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.New(mysql.Config{
 		DSN: dsn(cfg, false), SkipInitializeWithVersion: true,
-	}), &gorm.Config{DisableAutomaticPing: true, Logger: logger.Discard})
+	}), &gorm.Config{DisableAutomaticPing: true, Logger: logger.Discard, NowFunc: func() time.Time { return time.Now().UTC() }})
 	if err != nil {
 		return nil, err
 	}

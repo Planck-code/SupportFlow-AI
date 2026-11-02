@@ -1,6 +1,6 @@
 # SupportFlow AI 开发路线与验收
 
-> 状态：M1、M2 已通过验收；M3 及后续任务未开始。
+> 状态：M1～M3 已通过验收；M4 及后续任务未开始。
 > 更新日期：2026-11-02。
 > 产品约束见 [PRD.md](PRD.md)，目录、表与 API 见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -48,13 +48,15 @@
 
 ### M3 普通用户注册
 
-- [ ] 新增 `users` 迁移、用户 Repository、注册 Service 和 DTO。
-- [ ] 实现 `POST /api/v1/auth/register`，邮箱规范化、唯一约束、bcrypt 哈希。
-- [ ] 测试重复邮箱、并发重复注册、空输入、非法邮箱及密码字节边界。
+- [x] 新增 `users` 迁移、用户 Repository、注册 Service 和 DTO。
+- [x] 实现 `POST /api/v1/auth/register`，邮箱规范化、唯一约束、bcrypt 哈希。
+- [x] 测试重复邮箱、并发重复注册、空输入、非法邮箱及密码字节边界。
 
 **验收：**有效注册返回 `201`；重复邮箱返回 `409`；不能注册客服或管理员；数据库和响应中没有明文密码，响应不含密码哈希。
 
 **学习点：**DTO、唯一索引、ORM 错误映射、bcrypt、字节与字符区别。
+
+**本轮状态：**000002 users 迁移、注册分层与真实 MySQL 验收已完成。Handler 拒绝任何 role 字段，Service 固定 user，密码不 trim，字节范围 8～72；数据库保证邮箱唯一。开发库仅向上升级至 2、dirty=false，没有测试用户。详细结果见 6.6，不进入 M4。
 
 ### M4 登录与认证
 
@@ -251,3 +253,16 @@ M2 本轮已执行且通过：gofmt、`go test -count=1 ./...`、`go vet ./...`�
 - gofmt 检查、`go test -count=1 ./...`、`go vet ./...`、`go build ./cmd/api`、`go build ./cmd/migrate` 均通过。
 - 本轮应用代码无需修复；README 补充用户目录 Docker 的进程级 PATH 用法、端口冲突处理及真实验收结果，架构和产品文档同步状态。
 - 验收后停止 API 测试进程，保留 MySQL healthy。M2 达到独立提交条件，按要求提交并推送现有 master；M3 未开始。提交及推送是否成功以实际 Git 命令结果为准。
+
+### 6.6 M3 用户注册验收（2026-11-02）
+
+- 基线为已推送的 M2 `21d611d`，未重新设计 M1/M2，不创建额外分支。
+- 新增 000002 users up/down、Model、请求/响应 DTO、Users Repository、Registration Service、注册 Handler，并在 main/Router 手动组装。沿用现有 x/crypto 版本，bcrypt 成为直接依赖；只新增本任务实际需要的目录。
+- 服务端固定普通用户角色；role 包括 null 均返回 400。邮箱规范化后校验；显示名按 Unicode 字符数校验；密码按字节限制且不 trim。所有未知存储错误返回安全 500；重复键以错误码/类型识别并返回 409，没有预查邮箱。
+- 单元和 HTTP 测试覆盖成功、必填、错误类型、邮箱/显示名、密码短/72/73 字节及多字节边界、role 拒绝、DTO 白名单、错误响应与 request_id、存储错误脱敏。
+- 独立测试库保留版本 1 基线验收，新增版本 2 up/down/重复 up/完整 down/up。每个测试先核对实际库名、与开发库不同及空库状态，结束时清理该库本次拥有的 users/schema_migrations，支持连续重跑。
+- 真实 MySQL 注册测试通过：记录正确、bcrypt 可验证、大小写邮箱不能重复、直接插入大小写变体也被唯一索引拒绝、角色 CHECK、context 取消。8 个并发 HTTP 请求结果为 1 个 201、7 个 409，查询恰好 1 行。
+- 真实 API 二进制连接专用测试库，网络 HTTP 验证创建 201、重复 409、非法 400、role=admin 400；查验实际记录为规范化邮箱、role=user、密码非明文且为 bcrypt 格式，未输出哈希。
+- 开发库只做向上迁移到 2、dirty=false，没有执行 down 或写测试用户。外部 HTTP 验证数据仅存在于预先确认空的专用测试库，验收后已清理；MySQL 保持 healthy、验证 API 已停止。
+- gofmt、`go test -count=1 ./...`、`go vet ./...`、`go build ./cmd/api`、`go build ./cmd/migrate`、完整真实 MySQL 集成测试均通过；不把 mock、编译或跳过计作数据库验收。
+- README 补充接口规则、Postman 方法、调用流程、测试库清理说明和实测结果。当前停止在 M3，Git 提交及推送以实际命令结果为准。

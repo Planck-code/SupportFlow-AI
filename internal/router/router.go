@@ -11,7 +11,7 @@ import (
 	"github.com/Planck-code/SupportFlow-AI/internal/middleware"
 )
 
-func New(logger *slog.Logger, db handler.Pinger) *gin.Engine {
+func New(logger *slog.Logger, db handler.Pinger, registration handler.Registrar) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.RequestLog(logger))
 	// Gin's default recovery dumps request headers. Keep panic logs metadata-only.
@@ -25,5 +25,6 @@ func New(logger *slog.Logger, db handler.Pinger) *gin.Engine {
 	}))
 	r.GET("/healthz", handler.Healthz)
 	r.GET("/readyz", handler.Readyz(db))
+	r.POST("/api/v1/auth/register", handler.RegisterUser(registration))
 	return r
 }

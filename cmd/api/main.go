@@ -12,7 +12,9 @@ import (
 
 	"github.com/Planck-code/SupportFlow-AI/internal/config"
 	"github.com/Planck-code/SupportFlow-AI/internal/database"
+	"github.com/Planck-code/SupportFlow-AI/internal/repository"
 	"github.com/Planck-code/SupportFlow-AI/internal/router"
+	"github.com/Planck-code/SupportFlow-AI/internal/service"
 )
 
 func main() {
@@ -46,9 +48,10 @@ func main() {
 	if err != nil {
 		logger.Warn("database unavailable; readiness will return 503")
 	}
+	registration := service.NewRegistration(repository.NewUsers(db))
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
-		Handler:           router.New(logger, pool),
+		Handler:           router.New(logger, pool, registration),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	logger.Info("starting HTTP server", "addr", server.Addr)
