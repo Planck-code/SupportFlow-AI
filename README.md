@@ -14,6 +14,21 @@
 
 规划文档：[需求](docs/PRD.md)、[架构](docs/ARCHITECTURE.md)、[路线](docs/ROADMAP.md)。
 
+## VS Code F5 启动（本地开发推荐）
+
+用 VS Code 打开项目根目录 `SupportFlow AI`，安装 Go 扩展（`golang.go`）。首次使用时，按下文创建并填写根目录 `.env`，启动 MySQL 并运行数据库迁移。
+
+日常启动：
+
+1. 确保 Docker Desktop 已启动；若数据库未运行，在项目根目录终端执行 `docker compose up -d --wait mysql`。
+2. 按 `F5`，选择 `SupportFlow AI: 启动 API`（只有一个启动配置时可能直接启动）。如果 Go 扩展提示缺少 Delve（`dlv`），按提示安装调试工具后重试。
+3. 打开 `http://localhost:8080/healthz` 和 `http://localhost:8080/readyz`，确认均返回 200 和 `{"status":"ok"}`。若 `.env` 修改了 `PORT`，使用对应端口。
+4. 按 `Shift+F5` 停止调试。
+
+`.vscode/launch.json` 将启动包固定为 `cmd/api`、工作目录固定为项目根目录，并通过 `envFile` 自动将 `.env` 注入 Go 进程；无需手动导入环境变量。配置不包含密码，也不修改 Go 程序的配置读取逻辑。参考 [Go 扩展调试文档](https://github.com/golang/vscode-go/blob/master/docs/debugging.md)。
+
+此配置用于 VS Code 的运行和调试（F5），Code Runner 的 `Run Code` 按钮仍执行自己的命令。启动前先停止已有 API，避免端口占用。修改 `.env` 后需要停止并重新启动调试；F5 不会自动启动数据库或执行迁移，有新迁移时仍需按下文在终端导入环境变量并运行迁移。
+
 ## Windows PowerShell 启动
 
 在项目根目录运行。下面将依赖、构建缓存和 Go 临时文件放到项目内；这些目录已被 Git 忽略。环境变量只影响当前 PowerShell 会话，不使用 `go env -w` 修改全局配置。

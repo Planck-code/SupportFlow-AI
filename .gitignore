@@ -22,6 +22,7 @@ coverage.out
 # Local logs and editor files
 *.log
 .idea/
-.vscode/
+.vscode/*
+!.vscode/launch.json
 Thumbs.db
 .DS_Store
