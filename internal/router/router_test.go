@@ -2,7 +2,9 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -10,9 +12,17 @@ import (
 	"testing"
 )
 
+type pingFunc func(context.Context) error
+
+func (p pingFunc) PingContext(ctx context.Context) error { return p(ctx) }
+
+func unavailableDB() pingFunc {
+	return func(context.Context) error { return errors.New("test database unavailable") }
+}
+
 func TestHealthz(t *testing.T) {
 	var logs bytes.Buffer
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)))
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB())
 	req := httptest.NewRequest(http.MethodGet, "/healthz?token=private-query", nil)
 	req.Header.Set("Authorization", "Bearer private-header")
 	req.Header.Set("X-Request-ID", "untrusted-id")
@@ -50,7 +60,7 @@ func TestHealthz(t *testing.T) {
 
 func TestUnknownRouteDoesNotLogBodyOrRawPath(t *testing.T) {
 	var logs bytes.Buffer
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)))
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB())
 	req := httptest.NewRequest(http.MethodPost, "/private-path", strings.NewReader("private-body"))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -59,5 +69,37 @@ func TestUnknownRouteDoesNotLogBodyOrRawPath(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "private-") {
 		t.Fatal("request log contains raw path or body")
+	}
+}
+
+func TestReadinessTracksFailureAndRecovery(t *testing.T) {
+	available := true
+	db := pingFunc(func(context.Context) error {
+		if available {
+			return nil
+		}
+		return errors.New("private database error")
+	})
+	var logs bytes.Buffer
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), db)
+	for _, state := range []bool{true, false, true} {
+		available = state
+		for _, path := range []string{"/readyz", "/healthz"} {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+			want := 200
+			if path == "/readyz" && !available {
+				want = 503
+			}
+			if w.Code != want {
+				t.Fatalf("%s status=%d, want=%d", path, w.Code, want)
+			}
+			if strings.Contains(w.Body.String(), "private") {
+				t.Fatal("database error leaked")
+			}
+		}
+	}
+	if strings.Contains(logs.String(), "private") {
+		t.Fatal("database error leaked into request log")
 	}
 }

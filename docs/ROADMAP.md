@@ -1,6 +1,6 @@
 # SupportFlow AI 开发路线与验收
 
-> 状态：M1 已实现并通过本地验收；M2 及后续任务未开始。
+> 状态：M1、M2 已通过验收；M3 及后续任务未开始。
 > 更新日期：2026-11-02。
 > 产品约束见 [PRD.md](PRD.md)，目录、表与 API 见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -15,6 +15,7 @@
 - 重要业务逻辑有测试；数据库语义通过真实 MySQL 验证。
 - 每项交付用中文说明文件变化、执行流程、学习点、运行方法、真实测试结果和未验证部分。
 - README 随可运行能力同步更新，不把未来计划描述成现有功能。
+- 每个任务实际验收通过后独立提交并推送当前分支；提交信息使用 Conventional Commits 前缀及中文描述。缺少真实验收时保留工作区，不强制推送或覆盖远程历史。
 - 每个任务优先补充可失败的验收测试，再实现最小行为，运行针对性检查及全量检查。
 
 无需在开始前学完全部技术。文档中的后续任务是路线，不构成一次性实现全部阶段的指令。
@@ -35,13 +36,15 @@
 
 ### M2 数据库基础
 
-- [ ] 增加 Compose MySQL、环境变量、连接池与连接超时。
-- [ ] 建立编号 SQL 迁移和显式运行方法，使用迁移工具验证空库连接与版本管理；业务表在所属任务逐步添加。
-- [ ] 增加 `GET /readyz`，同步 README 的数据库启动、迁移和检查步骤。
+- [x] 增加 Compose MySQL、环境变量、连接池与连接超时。
+- [x] 建立编号 SQL 迁移和显式运行方法，使用迁移工具验证空库连接与版本管理；业务表在所属任务逐步添加。
+- [x] 增加 `GET /readyz`，同步 README 的数据库启动、迁移和检查步骤。
 
 **验收：**干净数据库可执行迁移流程；数据库正常时 readiness 返回 `200`，连接失败时返回 `503`；存活接口不因数据库失败变为失败。不硬编码密码，不把容器启动等同于数据库就绪。
 
 **学习点：**DSN、连接池、Compose、连接与查询超时、存活和就绪区别。
+
+**本轮状态：**真实 Docker MySQL、GORM 连接、迁移及数据库停机/恢复验收已通过，详见 6.5。按一个 ROADMAP 任务一次提交的规则交付 M2，停止在本阶段，不进入 M3。
 
 ### M3 普通用户注册
 
@@ -205,7 +208,7 @@ go vet ./...
 
 ### 6.3 当前交付与环境事实
 
-最初交付为三份规划文档；当前已完成 M1，包含服务入口、配置、Gin 路由、健康 Handler、请求日志中间件、自动化测试、Git 忽略规则、环境样例和 README。不包含 M2 的数据库、迁移或容器配置。
+最初交付为三份规划文档；M1 已验收并推送。M2 的 Compose MySQL、数据库配置、GORM 连接池、独立迁移命令、编号 SQL 基线、readiness、纯 Go 测试和独立集成测试现已通过真实验收。以下早期环境受阻记录按历史保留，最终状态以 6.5 为准。
 
 初次规划检查时目录只有 AGENTS.md，没有 Git 仓库、Go Module 或 README。发现 Go 命令可用，但命令查找未发现 Docker；这只说明当前命令环境情况，M2 前需重新确认 Docker Desktop/Compose，而非断言机器未安装 Docker。
 
@@ -219,4 +222,32 @@ M1 本地验收记录（2026-11-02，Windows，Go 1.27.0）：
 - Git 已初始化，origin 已配置；后续按每个任务验收后独立提交并推送当前分支的约定执行，不创建额外分支或强制推送。
 - MySQL、JWT、Redis、AI 和前端未实现，也未执行相应测试。
 
-启动与重复测试方法以根目录 README 为准。M1 完成后停止，下一次显式执行 M2 时再检查 Docker 环境。
+启动与重复测试方法以根目录 README 为准。M2 当前环境再次检查未发现 Docker 命令或常见安装位置；没有安装系统软件。真实集成测试明确使用 `TEST_DATABASE_NAME` 配合 `DB_*`，而非另行提供测试 DSN；要求专用空库且以 `_test` 结尾。按 README 完成真实验收前保持未提交，停止在 M2，不进入 M3。
+
+M2 本轮已执行且通过：gofmt、`go test -count=1 ./...`、`go vet ./...`、API 和迁移工具构建；集成测试仅使用 `-run '^$'` 检查编译。前台真实 HTTP 进程已验证数据库不可用时 healthz=200、readyz=503，以及迁移命令失败退出；这些检查不能代替 MySQL 成功连接与迁移验收。独立审查未发现阻断问题，并已采用独立清理 context 改进集成测试的失败后清理。
+
+### 6.4 M2 真实数据库验收复查（2026-11-02）
+
+本次未新增业务功能或修改 Go 代码，仅复查环境、运行检查并补充此记录。
+
+- PATH、常见安装目录、安装记录、相关服务和进程中未发现可用的 Windows Docker；Compose 不可执行。WSL 存在 Ubuntu，但执行检查时提示首次初始化，已中止，没有进行系统初始化、软件安装或系统配置修改。
+- 项目没有 `.env`，当前进程未设置 `DB_*`、`MYSQL_ROOT_PASSWORD` 或 `TEST_DATABASE_NAME`。样例中应用与 Compose 的默认端口均为 3306，用户名和库名映射一致，密码留空；这不代表实际数据库凭据已配置或验证。
+- 实际运行 `go test -count=1 ./...`、`go vet ./...`、`go build ./cmd/api`、`go build ./cmd/migrate`，均通过。
+- 实际运行 README 中的 `go test -tags=integration -count=1 -v ./tests/integration`，`TestDatabaseAndMigrations` 因未设置专用测试库而在入口失败，退出码 1；数据库连接、迁移和会话参数用例未执行，不能报告通过。
+- 使用仅存在于验证进程环境中的测试配置启动真实 API：数据库不可用时 `/healthz` 返回 200 和精确健康 JSON，`/readyz` 返回 503 和请求 ID，响应没有连接细节。验证进程已停止，未生成真实密码配置文件。
+- 容器启动与健康、真实 MySQL 连接、迁移 up/version/down/重新 up、正常及恢复后的 readiness 200 均未执行，仍为必要验收缺口。没有清理或删除任何数据库数据。
+- `.env`、日志、缓存及两个 Windows 构建产物均被忽略。M2 未暂存、未提交、未推送，当前分支仍为 `master`，最后提交仍为 M1 的 `d9c5696`。
+
+当时继续条件：提供可用 Docker + Compose、完成本地数据库凭据配置，再按 README 从容器启动开始执行完整验收。上述条件现已满足，最终验收见下节。
+
+### 6.5 M2 最终真实验收（2026-11-02）
+
+- 环境：Windows 11 + WSL 2，Docker Engine 29.9.2，Compose v5.6.1，Context `desktop-linux`。通过已安装程序的实际路径运行，没有安装软件或修改系统 PATH。
+- 现有 `.env` 配置完整且已被忽略；保留密码，不打印其内容。首次启动因宿主机 3306 已被其他进程占用而失败，经检查 13306 可用，只修改本项目 `.env` 的 `DB_PORT=13306`，Go 配置与 Compose 映射保持一致，没有停止其他服务。
+- Compose 配置检查及 `up -d --wait mysql` 成功，容器 `supportflowai-mysql-1` healthy。实际 MySQL 版本 8.4.13，非 root 应用账号连接成功。
+- 开发库仅执行 up、version、重复 up，版本为 1、dirty=false。停机恢复后再次查询仍为版本 1、dirty=0。
+- 专用测试库 `supportflow_m2_test` 先确认无表，再限定该库授权。真实执行 README 的 `go test -tags=integration -count=1 -v ./tests/integration`，`TestDatabaseAndMigrations` 通过；实际覆盖 MySQL Ping、GORM 查询、UTC/utf8mb4、up、重复 up、down 和重新 up。所有测试清理仅发生于专用测试库，开发库未执行 down。
+- 同一真实 API 进程，在 MySQL 正常/停止/恢复三个阶段，healthz 分别为 200/200/200，readyz 分别为 200/503/200。恢复时没有重启 API。只停止和恢复 Compose 中本项目的 MySQL，未删除数据卷。
+- gofmt 检查、`go test -count=1 ./...`、`go vet ./...`、`go build ./cmd/api`、`go build ./cmd/migrate` 均通过。
+- 本轮应用代码无需修复；README 补充用户目录 Docker 的进程级 PATH 用法、端口冲突处理及真实验收结果，架构和产品文档同步状态。
+- 验收后停止 API 测试进程，保留 MySQL healthy。M2 达到独立提交条件，按要求提交并推送现有 master；M3 未开始。提交及推送是否成功以实际 Git 命令结果为准。

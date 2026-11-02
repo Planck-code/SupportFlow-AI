@@ -13,6 +13,8 @@
 /bin/
 /api
 /api.exe
+/migrate
+/migrate.exe
 *.test
 *.test.exe
 coverage.out

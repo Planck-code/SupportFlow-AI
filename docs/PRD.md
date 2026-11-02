@@ -1,6 +1,6 @@
 # SupportFlow AI 产品需求文档
 
-> 状态：M1 服务骨架已实现；本文中的账号、工单和后续业务功能仍为开发规划。
+> 状态：M1 服务骨架、M2 数据库基础已验收；本文中的账号、工单和后续业务功能仍为开发规划。
 > 更新日期：2026-11-02。
 > 技术设计见 [ARCHITECTURE.md](ARCHITECTURE.md)，任务与验收见 [ROADMAP.md](ROADMAP.md)。
 
