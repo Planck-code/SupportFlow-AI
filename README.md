@@ -1,8 +1,8 @@
 # SupportFlow AI
 
-面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M3 已通过验收；当前实现普通用户注册，停止在 M3，不进入 M4 登录与 JWT。**
+面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M4 已通过验收；当前支持注册、登录和 JWT 身份认证，停止在 M4，不进入 M5。**
 
-当前代码包含 Gin HTTP 服务、配置、JSON 日志、请求 ID、健康和就绪检查、GORM 连接池、Compose MySQL、显式 SQL 迁移及用户注册。数据库不可用时进程仍可运行，`/healthz` 返回 200，`/readyz` 返回 503。未开发登录、工单、JWT、Redis、AI 或前端。
+当前代码包含 Gin HTTP 服务、配置、JSON 日志、请求 ID、健康和就绪检查、GORM 连接池、Compose MySQL、显式 SQL 迁移、用户注册、登录和当前用户查询。数据库不可用时进程仍可运行，`/healthz` 返回 200，`/readyz` 返回 503。未开发工作人员初始化、工单、Redis、AI 或前端。
 
 ## 环境与依赖
 
@@ -10,6 +10,7 @@
 - Git；完整验收 M2 需要 Docker Desktop + Compose 及 MySQL 8.4。未安装 Docker 时不要把纯 Go 检查当作完整验收。
 - Gin v1.12.0 用于 HTTP；GORM v1.31.2、GORM MySQL 驱动 v1.6.0 和底层 `go-sql-driver/mysql` v1.8.1 用于连接；golang-migrate v4.20.1 用于独立迁移命令。配置、日志和测试使用标准库。
 - `golang.org/x/crypto` v0.53.0 的 bcrypt 用于密码哈希；沿用已有版本，M3 将其列为直接依赖。
+- `github.com/golang-jwt/jwt/v5` v5.3.1 用于 M4 的 HS256 签发与验证，版本已锁定。
 - 正式模块路径为 `github.com/Planck-code/SupportFlow-AI`，与 GitHub 仓库保持一致。
 
 规划文档：[需求](docs/PRD.md)、[架构](docs/ARCHITECTURE.md)、[路线](docs/ROADMAP.md)。
@@ -44,7 +45,7 @@ $env:GOTMPDIR = Join-Path $PWD '.cache/tmp'
 go mod download
 ```
 
-首次使用复制配置样例，再用编辑器在本地填写不同的 `DB_PASSWORD` 和 `MYSQL_ROOT_PASSWORD`，不要提交 `.env`。已有 `.env` 时直接编辑，不覆盖原文件：
+首次使用复制配置样例，再用编辑器在本地填写不同的 `DB_PASSWORD` 和 `MYSQL_ROOT_PASSWORD`，并按文末 M4 配置步骤生成 `JWT_SECRET`；不要提交 `.env`。已有 `.env` 时直接编辑，不覆盖原文件：
 
 ```powershell
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
@@ -149,6 +150,7 @@ go build -o .cache/migrate.exe ./cmd/migrate
 ```text
 cmd/api/main.go                 日志、配置、路由与 HTTP 服务组装
 internal/config/               从进程环境加载并校验端口
+internal/auth/                 JWT HS256 签发与严格验证
 internal/database/             GORM 连接池与 golang-migrate 初始化
 cmd/migrate/                   独立 up/version 命令，不接受命令行密码
 internal/router/               注册中间件、GET /healthz 和 GET /readyz
@@ -156,14 +158,14 @@ internal/handler/health.go      输出健康 JSON
 internal/handler/ready.go       有界数据库 Ping 与就绪 JSON
 internal/middleware/           请求 ID 与结构化访问日志
 internal/model/                users 数据库模型
-internal/dto/                  注册请求与安全用户响应
-internal/service/              注册规则、bcrypt、服务端固定角色
-internal/repository/           带 context 的 GORM Create 与重复键映射
+internal/dto/                  注册/登录请求、令牌响应、安全用户响应
+internal/service/              注册/登录规则、bcrypt、服务端固定注册角色
+internal/repository/           带 context 的 GORM Create、邮箱/ID 查询与错误映射
 migrations/                    000001 基线、000002 users 表
 tests/integration/             显式启用的真实 MySQL 验证
 ```
 
-启动顺序：`main` 创建日志 → 加载 HTTP 和数据库配置 → GORM 创建连接池 → 获取底层 `*sql.DB` 并设置连接池参数 → 初次限时 Ping（失败只警告）→ 组装路由 → HTTP 监听。连接失败后无需重启 API，后续 readiness 会重新 Ping。
+启动顺序：`main` 创建日志 → 加载 HTTP、JWT 和数据库配置 → 创建 JWT 组件与 GORM 连接池 → 初次限时 Ping（失败只警告）→ 手动组装 Repository、注册/登录 Service、认证中间件及路由 → HTTP 监听。缺少有效 JWT_SECRET 时拒绝启动；迁移命令独立运行，不要求 JWT_SECRET。连接失败后无需重启 API，后续 readiness 会重新 Ping。
 
 请求顺序：HTTP Server → Gin → 请求日志中间件生成 ID → Recovery 中间件 → `handler.Healthz` → `c.JSON` 写入状态码和正文 → 中间件记录最终状态与耗时。
 
@@ -181,7 +183,7 @@ Recovery 使用受限日志，不输出默认的请求头或 panic 详情。M3 �
 git status --short
 git add .
 git diff --cached --stat
-git commit -m 'feat: 实现用户注册与密码安全存储'
+git commit -m 'feat: 实现用户登录与 JWT 身份认证'
 $currentBranch = git branch --show-current
 git push -u origin $currentBranch
 ```
@@ -307,7 +309,7 @@ go test -tags=integration -count=1 -v ./tests/integration
 
 成功为 HTTP 201，仅返回 `id/email/display_name/role/created_at`，role 固定 `user`。重复发送同一邮箱或其大小写变体返回 409。错误响应为 `{code,message,request_id}`，可通过响应头 `X-Request-ID` 与服务端日志关联。
 
-可依次尝试：邮箱加空格和改为大写（会先规范化）；空白显示名、短密码、超过 72 字节密码（400）；添加 `"role":"admin"` 或 `"role":null`（400）。没有登录或 JWT 返回值，不需要预先获取令牌。
+可依次尝试：邮箱加空格和改为大写（会先规范化）；空白显示名、短密码、超过 72 字节密码（400）；添加 `"role":"admin"` 或 `"role":null`（400）。注册接口本身不返回 JWT，也不需要预先获取令牌；注册后通过登录接口获取令牌。
 
 ### 注册规则与执行流程
 
@@ -345,3 +347,66 @@ go build ./cmd/api
 go build ./cmd/migrate
 go test -tags=integration -count=1 -v ./tests/integration
 ```
+
+## M4：登录与 JWT 身份认证
+
+### 本地密钥配置
+
+API 要求 `JWT_SECRET` 至少 32 字节，没有默认值。首次配置时，在项目根目录执行下面代码，将随机值写入被忽略的 `.env`，不输出密钥；已有合格密钥则保留。此示例生成 48 个随机字节，再编码为 Base64 文本，服务端直接使用该文本作为签名密钥，不额外解码。
+
+```powershell
+$envPath = Join-Path $PWD '.env'
+$localConfig = [IO.File]::ReadAllText($envPath)
+if ($localConfig -notmatch '(?m)^JWT_SECRET=.{32,}\r?$') {
+    $randomBytes = New-Object byte[] 48
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    $rng.GetBytes($randomBytes)
+    $rng.Dispose()
+    $jwtSecret = [Convert]::ToBase64String($randomBytes)
+    if ($localConfig -match '(?m)^JWT_SECRET=.*$') {
+        $localConfig = [regex]::Replace($localConfig, '(?m)^JWT_SECRET=.*$', ('JWT_SECRET=' + $jwtSecret))
+    } else {
+        $localConfig = $localConfig.TrimEnd() + [Environment]::NewLine + 'JWT_SECRET=' + $jwtSecret + [Environment]::NewLine
+    }
+    [IO.File]::WriteAllText($envPath, $localConfig, [Text.UTF8Encoding]::new($false))
+}
+```
+
+然后重新执行前文的 PowerShell 环境变量导入代码，再 `go run ./cmd/api`。VS Code F5 会读取 `.env`，已有调试进程需要重启。不要将密钥放进命令行参数、示例文件或截图；更换密钥会使旧令牌失效。
+
+### Postman 登录与当前用户
+
+1. 先通过 M3 注册接口创建自己的本地演示用户。
+2. `POST http://localhost:8080/api/v1/auth/login`，Authorization 选 No Auth，Body 选 raw / JSON，使用注册时的邮箱和密码：
+
+```json
+{"email":"test@example.com","password":"12345678"}
+```
+
+3. 成功返回 200，字段为 `access_token`、`token_type: "Bearer"`、`expires_in: 7200`（秒）。令牌不打印到服务器日志；请仅在本地保存使用。
+4. 新建 `GET http://localhost:8080/api/v1/users/me`，Authorization 选择 Bearer Token，把登录结果中的 access_token 填入 Token 输入框（无需重复写 `Bearer`）。成功返回 200，只有 `id/email/display_name/role/created_at`。
+5. 改为 No Auth 或修改令牌字符，应返回 401；改错登录密码，或使用不存在的邮箱，均返回相同的 401 错误。缺少邮箱/密码、错误 JSON 或非法邮箱返回 400。数据库查询故障返回 500，不能当作凭据错误。
+
+客户端传入的 id/role 不参与身份判断。密码保留原样；非空但不满足注册密码字节范围的登录凭据返回 401，避免 bcrypt 的 72 字节截断问题。登录和 `/users/me` 成功响应设置 `Cache-Control: no-store`。退出仅清除客户端令牌，MVP 不提供刷新令牌、黑名单或服务端注销；原令牌在有效期内仍能通过认证。
+
+### 代码执行与学习顺序
+
+- 登录：`handler/login.go` 用 ShouldBindJSON 绑定 → `service/login.go` 复用注册邮箱规范化 → `repository/user.go` 按邮箱查询 → bcrypt.CompareHashAndPassword 比较 → `auth/jwt.go` 签发 → Handler 输出令牌 DTO。
+- `NewLogin` 初始化一次随机 dummy hash，未知账号也执行默认成本 bcrypt 比较，减少账号存在性耗时差异；这不是用户密码或账号，不写入数据库。数据库错误和损坏的已存储哈希作为内部错误处理。
+- JWT 由 header、payload、signature 三部分组成；签名防篡改，不加密 payload。只放 sub（十进制用户 ID）、iat、exp，固定签发 2 小时；不放邮箱、角色、密码或哈希。验证限制 HS256，要求 exp/iat，校验过期、未来签发时间、exp 晚于 iat，以及合法正整数 sub。
+- `/users/me`：`middleware/authentication.go` 提取单个 Bearer Header → 验证 JWT → Repository 按 ID 重新查询 → 将安全 DTO 放进 Gin Context → `handler/me.go` 输出。用户删除后返回 401，角色/显示名变化后立即读取新值，数据库故障返回 500。M4 只有认证，不实现角色授权框架。
+- 错误统一包含 code/message/request_id。认证失败中止后续 Handler；JWT 错误详情、数据库底层错误、Authorization 和请求体均不记录到日志。
+
+优先阅读 `internal/service/login.go`、`internal/auth/jwt.go`、`internal/middleware/authentication.go` 和 `tests/integration/authentication_test.go`。接口只定义消费方实际需要的查询能力；JWT 使用具体组件，依赖在 main 显式组装。
+
+参考：[JWT 验证选项](https://golang-jwt.github.io/jwt/usage/parse/)、[bcrypt 比较 API](https://pkg.go.dev/golang.org/x/crypto/bcrypt)。
+
+### M4 验收记录（2026-11-04）
+
+- 普通测试覆盖成功登录、规范化、同文案错误凭据、参数校验、哈希错误、JWT 声明、算法白名单、签名、过期、缺失/重复/错误 Authorization、无效用户、最新用户信息和日志脱敏。时间测试使用固定时钟或构造令牌，没有等待两小时。
+- 真实 MySQL：复用独立空库 `supportflow_m2_test` 的安全检查/清理；注册后登录成功，修改测试用户的角色与显示名后 `/users/me` 返回最新值，删除该测试用户后旧令牌返回 401；独立关闭的真实 SQL 连接池使登录及已签名令牌认证返回 500。未停止开发数据库，也未删除开发库数据。
+- 原有基线/users 迁移 up/down、版本 2 检查和 8 并发注册均保留并通过。M4 没有新增或修改 SQL 迁移，测试结束清理仅限本次拥有的测试库表。
+- 实际启动 API 二进制，连接专用测试库，网络请求验证：注册 201 → 登录 200 → 带令牌 me 200 → 无令牌 me 401；错误密码 401，healthz/readyz 均 200。查验真实注册行与 bcrypt；API 日志不含实际密码、哈希、令牌、JWT 密钥或数据库密码。
+- 实际 API 进程验证缺失和过短 JWT_SECRET 均拒绝启动；本地 `.env` 已生成随机密钥，未输出其值；`.env.example` 只保留空值。
+- 格式检查、`go test -count=1 ./...`、`go vet ./...`、`go build ./cmd/api`、`go build ./cmd/migrate`、`go test -tags=integration -count=1 -v ./tests/integration` 全部实际执行通过。普通测试不替代数据库测试，MySQL 测试未跳过。
+- 验证用 API 已停止，专用测试库已清理，MySQL 保留 healthy。M4 完成后停止，M5 尚未开始。

@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	ErrInvalidInput = errors.New("invalid registration input")
+	ErrInvalidInput = errors.New("invalid input")
 	ErrEmailExists  = repository.ErrEmailExists
 )
 
@@ -29,12 +29,11 @@ type Registration struct{ users userCreator }
 func NewRegistration(users userCreator) *Registration { return &Registration{users: users} }
 
 func (s *Registration) Register(ctx context.Context, email, password, displayName string) (model.User, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	displayName = strings.TrimSpace(displayName)
-	address, err := mail.ParseAddress(email)
-	if err != nil || len(email) > 254 || address.Address != email || address.Name != "" {
-		return model.User{}, fmt.Errorf("%w: email must be a valid address of at most 254 bytes", ErrInvalidInput)
+	email, err := normalizeEmail(email)
+	if err != nil {
+		return model.User{}, err
 	}
+	displayName = strings.TrimSpace(displayName)
 	if count := utf8.RuneCountInString(displayName); count < 1 || count > 64 {
 		return model.User{}, fmt.Errorf("%w: display_name must contain 1 to 64 characters", ErrInvalidInput)
 	}
@@ -54,4 +53,13 @@ func (s *Registration) Register(ctx context.Context, email, password, displayNam
 		return model.User{}, err
 	}
 	return user, nil
+}
+
+func normalizeEmail(email string) (string, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	address, err := mail.ParseAddress(email)
+	if err != nil || len(email) > 254 || address.Address != email || address.Name != "" {
+		return "", fmt.Errorf("%w: email must be a valid address of at most 254 bytes", ErrInvalidInput)
+	}
+	return email, nil
 }

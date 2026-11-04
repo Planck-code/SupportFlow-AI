@@ -22,7 +22,7 @@ func unavailableDB() pingFunc {
 
 func TestHealthz(t *testing.T) {
 	var logs bytes.Buffer
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB(), nil)
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB(), nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/healthz?token=private-query", nil)
 	req.Header.Set("Authorization", "Bearer private-header")
 	req.Header.Set("X-Request-ID", "untrusted-id")
@@ -60,7 +60,7 @@ func TestHealthz(t *testing.T) {
 
 func TestUnknownRouteDoesNotLogBodyOrRawPath(t *testing.T) {
 	var logs bytes.Buffer
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB(), nil)
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB(), nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/private-path", strings.NewReader("private-body"))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -81,7 +81,7 @@ func TestReadinessTracksFailureAndRecovery(t *testing.T) {
 		return errors.New("private database error")
 	})
 	var logs bytes.Buffer
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), db, nil)
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), db, nil, nil, nil)
 	for _, state := range []bool{true, false, true} {
 		available = state
 		for _, path := range []string{"/readyz", "/healthz"} {

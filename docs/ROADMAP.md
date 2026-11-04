@@ -1,7 +1,7 @@
 # SupportFlow AI 开发路线与验收
 
-> 状态：M1～M3 已通过验收；M4 及后续任务未开始。
-> 更新日期：2026-11-02。
+> 状态：M1～M4 已通过验收；M5 及后续任务未开始。
+> 更新日期：2026-11-04。
 > 产品约束见 [PRD.md](PRD.md)，目录、表与 API 见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 1. 执行方式与全局约束
@@ -60,13 +60,15 @@
 
 ### M4 登录与认证
 
-- [ ] 实现登录、JWT 生成与验证、中间件、`GET /api/v1/users/me`。
-- [ ] 请求查库加载当前用户和角色，不使用客户端传来的角色决定权限。
-- [ ] 测试正确登录、错误凭据、无令牌、过期、伪造签名、错误算法及无效用户。
+- [x] 实现登录、JWT 生成与验证、中间件、`GET /api/v1/users/me`。
+- [x] 请求查库加载当前用户和角色，不使用客户端传来的角色决定权限。
+- [x] 测试正确登录、错误凭据、无令牌、过期、伪造签名、错误算法及无效用户。
 
 **验收：**正确登录可访问当前用户；错误凭据或令牌返回 `401`；JWT 密钥缺失时启动失败。说明客户端退出不等于撤销已签发令牌。
 
 **学习点：**JWT、Gin 中间件、认证和授权、`context.Context`。
+
+**本轮状态：**登录、JWT 与当前用户查询已通过普通测试、真实 MySQL 与 API 网络验收；详情见 6.7。数据库迁移仍为 2，不进入 M5。
 
 ### M5 工作人员初始化
 
@@ -266,3 +268,16 @@ M2 本轮已执行且通过：gofmt、`go test -count=1 ./...`、`go vet ./...`�
 - 开发库只做向上迁移到 2、dirty=false，没有执行 down 或写测试用户。外部 HTTP 验证数据仅存在于预先确认空的专用测试库，验收后已清理；MySQL 保持 healthy、验证 API 已停止。
 - gofmt、`go test -count=1 ./...`、`go vet ./...`、`go build ./cmd/api`、`go build ./cmd/migrate`、完整真实 MySQL 集成测试均通过；不把 mock、编译或跳过计作数据库验收。
 - README 补充接口规则、Postman 方法、调用流程、测试库清理说明和实测结果。当前停止在 M3，Git 提交及推送以实际命令结果为准。
+
+### 6.7 M4 登录与 JWT 认证验收（2026-11-04）
+
+- 基线保留 M3 `08684e3` 及随后 VS Code 配置 `d05407c`，在现有 master 实现；不改旧迁移、不增加业务表，版本保持 2。
+- 增加 golang-jwt/jwt/v5 v5.3.1、JWT 配置与组件、登录 DTO/Service/Handler、认证中间件、me Handler；扩展用户 Repository 查询，复用注册邮箱规则、安全用户 DTO 和现有连接池。
+- JWT_SECRET 至少 32 字节；本地随机值只写入已忽略的 .env。实际 API 进程验证缺失/过短密钥均拒绝启动。令牌固定签发 2 小时，仅含 sub/iat/exp；验证 HS256、签名、过期和签发时间及有效 sub。
+- 登录不存在账号/错误密码使用统一 401；不存在账号也比较初始化的 dummy bcrypt hash，以减少耗时侧信道。数据库故障和异常存储哈希返回 500；认证成功后重新查询当前用户角色，不信任客户端 id/role。
+- 普通测试实际覆盖参数/邮箱/密码字节边界、JWT 时间与算法、伪造签名、错误/重复 Header、无用户、当前用户、敏感响应及日志；固定时间测试不等待 2 小时。
+- 真实 MySQL 集成测试全部通过，专用空库 supportflow_m2_test 内完成注册→登录→查用户→更新角色/名称→验证旧令牌读取新值→删除测试用户→验证 401；取消的 context 传递到查询。独立关闭真实 SQL 连接池后登录/me 均返回 500，healthz=200、readyz=503。
+- 保留原有迁移 1/2 up/down、重复 up、完整 down/up、bcrypt 和 8 并发注册验收，未在开发库执行 down 或删除数据，测试清理仅限已核验空库中本次拥有的表。
+- 实际 API 二进制连接专用测试库，通过网络 HTTP 验证注册 201、登录 200、带 JWT me 200、无 JWT me 401、错误密码 401；查验 MySQL bcrypt 记录与日志脱敏，healthz/readyz 为 200。API 已停止，专用测试库已清理，MySQL healthy。
+- gofmt、go test -count=1 ./...、go vet ./...、go build ./cmd/api、go build ./cmd/migrate、go test -tags=integration -count=1 -v ./tests/integration 全部实际执行通过，无跳过数据库验收。
+- README、ARCHITECTURE 同步配置/执行流程/Postman/实测说明，PRD 仅更新进度。完成后按要求独立提交并推送 master；提交哈希及推送结果以实际 Git 输出为准。停止于 M4，不进入 M5。

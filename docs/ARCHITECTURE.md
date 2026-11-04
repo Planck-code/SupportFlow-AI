@@ -1,7 +1,7 @@
 # SupportFlow AI 架构设计
 
-> 状态：M1～M3 已通过验收，普通用户注册已实现；登录、工单等后续部分仍为目标设计。
-> 更新日期：2026-11-02。
+> 状态：M1～M4 已通过验收，注册、登录和 JWT 身份认证已实现；工作人员初始化、工单等后续部分仍为目标设计。
+> 更新日期：2026-11-04。
 > 业务规则以 [PRD.md](PRD.md) 为准，开发顺序见 [ROADMAP.md](ROADMAP.md)。
 
 ## 1. 单体架构与执行流程
@@ -141,12 +141,16 @@ GORM 以 MySQL 8.4 为目标创建底层 `database/sql` 连接池，跳过隐式
 
 - 邮箱去除首尾空白并统一小写，注册和登录遵循同一规则。
 - 密码不 trim；长度限定为 8～72 字节，使用 bcrypt 哈希和比较。不能仅用前端校验或按字符数替代字节校验。
-- JWT 密钥从环境变量读取，不使用默认演示密钥；缺失或明显过短时拒绝启动。
-- 固定允许 HS256，校验签名、`sub` 和过期时间；`sub` 表示用户 ID。
+- JWT_SECRET 从环境变量读取，至少 32 字节，不使用默认演示密钥；缺失或不足时 API 拒绝启动。迁移 CLI 不读取 JWT 配置。
+- `internal/auth` 使用 golang-jwt/jwt/v5 v5.3.1，仅允许 HS256。签发固定 2 小时的 sub/iat/exp；验证签名、必填过期/签发时间、未来签发时间、exp 晚于 iat，以及规范十进制正整数 sub（uint64 用户 ID）。令牌不含邮箱、角色或敏感信息。
 - 每次认证后从数据库读取用户及当前角色，不相信请求体角色或令牌中的旧角色。
-- 登录失败不区分邮箱不存在和密码错误；响应不泄露密码哈希。
+- 登录失败不区分邮箱不存在和密码错误，统一 401；初始化登录 Service 时生成默认成本 dummy bcrypt hash，缺失账号也执行比较以减少耗时差。数据库查询故障与损坏的存储哈希返回安全 500，不伪装成凭据错误。
 - MVP 无刷新令牌、服务端注销或黑名单；客户端退出清除令牌，已签发令牌仍可使用至过期。
 - 请求日志不记录 Authorization、密码、工单正文或模型 API Key。
+
+M4 实际调用流程：ShouldBindJSON → Login Service（共享邮箱规范化）→ Users.FindByEmail → bcrypt.CompareHashAndPassword → JWT.Issue → 安全令牌 DTO。GET /users/me 使用认证中间件，解析唯一 Authorization Header 中的 Bearer Token → JWT.Validate → Users.FindByID → 将安全 UserResponse 放入 Gin Context → Me Handler 输出。已删除用户返回 401，当前用户/角色以数据库查询结果为准。所有数据库查询传递请求 context；错误包含 request_id。认证中间件用 AbortWithStatusJSON 中止失败请求，不影响公开注册和健康接口。M4 不实现 RBAC、刷新令牌或黑名单。
+
+测试沿用已验证的空专用库与清理规则。JWT 使用固定时钟或构造时间声明验证过期，HTTP 测试覆盖签名/算法/用户/数据库错误，真实 MySQL 测试验证角色变更、删除测试用户及独立关闭 SQL 连接池后的错误语义。最新迁移仍为 2，原有迁移文件未改动。
 
 ### 5.2 授权与状态
 

@@ -3,6 +3,8 @@ package dto
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/Planck-code/SupportFlow-AI/internal/model"
 )
 
 type RegisterRequest struct {
@@ -19,4 +21,8 @@ type UserResponse struct {
 	DisplayName string    `json:"display_name"`
 	Role        string    `json:"role"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+func NewUserResponse(user model.User) UserResponse {
+	return UserResponse{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Role: user.Role, CreatedAt: user.CreatedAt.UTC()}
 }
