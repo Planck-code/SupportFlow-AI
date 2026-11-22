@@ -1,8 +1,29 @@
 # SupportFlow AI
 
-面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M4 已通过验收；当前支持注册、登录和 JWT 身份认证，停止在 M4，不进入 M5。**
+面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M5 已通过验收。** 当前支持普通用户注册、登录、JWT 身份认证、工作人员初始化和管理员查询客服。
 
-当前代码包含 Gin HTTP 服务、配置、JSON 日志、请求 ID、健康和就绪检查、GORM 连接池、Compose MySQL、显式 SQL 迁移、用户注册、登录和当前用户查询。数据库不可用时进程仍可运行，`/healthz` 返回 200，`/readyz` 返回 503。未开发工作人员初始化、工单、Redis、AI 或前端。
+数据库由 Compose 管理，API 和工作人员 CLI 共用 GORM 与编号 SQL 迁移。数据库不可用时，API 的 `/healthz` 返回 200，`/readyz` 返回 503。
+
+## M5 工作人员初始化与客服列表
+
+在项目根目录，按下文 PowerShell 步骤导入数据库环境变量并迁移到版本 2。运行 CLI 的操作者需要能使用该数据库账号。每次执行只创建一条记录，邮箱已存在时命令以非零状态退出。
+
+```powershell
+$staffInput = Read-Host '输入新账号密码' -AsSecureString
+try {
+    $env:STAFF_PASSWORD = [PSCredential]::new('staff', $staffInput).GetNetworkCredential().Password
+    go run ./cmd/admin -role admin -email admin@example.test -display-name 'Demo Admin'
+} finally {
+    Remove-Item Env:STAFF_PASSWORD -ErrorAction SilentlyContinue
+    $staffInput.Dispose()
+}
+```
+
+创建客服时将角色改为 `agent`，另选邮箱并重新输入密码。邮箱与普通注册使用同一规范化规则，密码按原样校验 8～72 字节。CLI 从进程环境读取密码，仅写入 bcrypt 哈希。
+
+**Postman 验证**　启动 API，向 `POST /api/v1/auth/login` 提交该工作人员的邮箱和密码，再用返回的 access_token 作为 Bearer Token 调用 `GET /api/v1/admin/agents?page=1&page_size=1`。管理员得到 200，响应包含按 ID 升序排列的 items、客服总数 total、page 和 page_size。默认每页 20，允许 1～100，超出末页返回空数组，非法分页返回 400。换为客服或普通用户令牌得到 403，清空令牌得到 401。登录时请在本机使用凭据，避免同步密码及令牌。
+
+**2026-11-22 实测**　独立空 MySQL 库内运行真实 CLI，验证两种工作人员角色、bcrypt、重复邮箱保护、非法输入、角色过滤、分页与同一令牌降权。开发库另创建一名管理员和两名客服，在真实 API 进程上验证管理员 200（total=2）、两名客服均 403、匿名 401。普通测试、集成测试、格式检查、vet 和两个入口构建均通过。
 
 ## 环境与依赖
 

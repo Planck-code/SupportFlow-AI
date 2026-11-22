@@ -41,7 +41,7 @@ func TestAuthenticationMySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := router.New(logger, pool, service.NewRegistration(users), login, middleware.Authenticate(tokens, users))
+	r := router.New(logger, pool, service.NewRegistration(users), login, middleware.Authenticate(tokens, users), users)
 	request := func(method, path string, body any, token string) *httptest.ResponseRecorder {
 		t.Helper()
 		data, _ := json.Marshal(body)
@@ -131,7 +131,7 @@ func TestAuthenticationMySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r = router.New(logger, failedPool, service.NewRegistration(failedUsers), failedLogin, middleware.Authenticate(tokens, failedUsers))
+	r = router.New(logger, failedPool, service.NewRegistration(failedUsers), failedLogin, middleware.Authenticate(tokens, failedUsers), failedUsers)
 	credentials["email"] = "login@example.com"
 	credentials["password"] = " actual-test-password "
 	if w := request("POST", "/api/v1/auth/login", credentials, ""); w.Code != 500 {

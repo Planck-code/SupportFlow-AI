@@ -33,7 +33,7 @@ func TestRegistrationMySQL(t *testing.T) {
 	users := repository.NewUsers(db)
 	registration := service.NewRegistration(users)
 	var logs bytes.Buffer
-	r := router.New(slog.New(slog.NewJSONHandler(&logs, nil)), pool, registration, nil, nil)
+	r := router.New(slog.New(slog.NewJSONHandler(&logs, nil)), pool, registration, nil, nil, users)
 	password := " test-password-preserved "
 	email := "register@example.com"
 	request := func(address string) (int, dto.UserResponse) {

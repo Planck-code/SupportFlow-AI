@@ -9,9 +9,10 @@ import (
 
 	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"github.com/Planck-code/SupportFlow-AI/internal/middleware"
+	"github.com/Planck-code/SupportFlow-AI/internal/model"
 )
 
-func New(logger *slog.Logger, db handler.Pinger, registration handler.Registrar, login handler.LoginService, authenticate gin.HandlerFunc) *gin.Engine {
+func New(logger *slog.Logger, db handler.Pinger, registration handler.Registrar, login handler.LoginService, authenticate gin.HandlerFunc, agents handler.AgentDirectory) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.RequestLog(logger))
 	// Gin's default recovery dumps request headers. Keep panic logs metadata-only.
@@ -28,5 +29,6 @@ func New(logger *slog.Logger, db handler.Pinger, registration handler.Registrar,
 	r.POST("/api/v1/auth/register", handler.RegisterUser(registration))
 	r.POST("/api/v1/auth/login", handler.LoginUser(login))
 	r.GET("/api/v1/users/me", authenticate, handler.Me)
+	r.GET("/api/v1/admin/agents", authenticate, middleware.RequireRole(model.RoleAdmin), handler.ListAgents(agents))
 	return r
 }

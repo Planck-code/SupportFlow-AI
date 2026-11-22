@@ -29,6 +29,17 @@ type Registration struct{ users userCreator }
 func NewRegistration(users userCreator) *Registration { return &Registration{users: users} }
 
 func (s *Registration) Register(ctx context.Context, email, password, displayName string) (model.User, error) {
+	return s.create(ctx, email, password, displayName, model.RoleUser)
+}
+
+func (s *Registration) CreateStaff(ctx context.Context, email, password, displayName, role string) (model.User, error) {
+	if role != model.RoleAgent && role != model.RoleAdmin {
+		return model.User{}, fmt.Errorf("%w: staff role must be admin or agent", ErrInvalidInput)
+	}
+	return s.create(ctx, email, password, displayName, role)
+}
+
+func (s *Registration) create(ctx context.Context, email, password, displayName, role string) (model.User, error) {
 	email, err := normalizeEmail(email)
 	if err != nil {
 		return model.User{}, err
@@ -48,7 +59,7 @@ func (s *Registration) Register(ctx context.Context, email, password, displayNam
 	if err != nil {
 		return model.User{}, err
 	}
-	user := model.User{Email: email, PasswordHash: string(hash), DisplayName: displayName, Role: model.RoleUser}
+	user := model.User{Email: email, PasswordHash: string(hash), DisplayName: displayName, Role: role}
 	if err := s.users.Create(ctx, &user); err != nil {
 		return model.User{}, err
 	}

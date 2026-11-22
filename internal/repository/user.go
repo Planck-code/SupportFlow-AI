@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Planck-code/SupportFlow-AI/internal/dto"
 	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 
@@ -42,4 +43,15 @@ func (r *Users) FindByID(ctx context.Context, id uint64) (model.User, error) {
 		return model.User{}, ErrUserNotFound
 	}
 	return user, err
+}
+
+func (r *Users) ListAgents(ctx context.Context, offset, limit int) ([]dto.UserResponse, int64, error) {
+	query := r.db.WithContext(ctx).Model(&model.User{}).Where("role = ?", model.RoleAgent)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	items := make([]dto.UserResponse, 0)
+	err := query.Select("id, email, display_name, role, created_at").Order("id ASC").Offset(offset).Limit(limit).Find(&items).Error
+	return items, total, err
 }

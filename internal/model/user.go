@@ -2,7 +2,11 @@ package model
 
 import "time"
 
-const RoleUser = "user"
+const (
+	RoleUser  = "user"
+	RoleAdmin = "admin"
+	RoleAgent = "agent"
+)
 
 type User struct {
 	ID           uint64 `gorm:"primaryKey"`

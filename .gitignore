@@ -26,3 +26,6 @@ coverage.out
 !.vscode/launch.json
 Thumbs.db
 .DS_Store
+
+/admin
+/admin.exe

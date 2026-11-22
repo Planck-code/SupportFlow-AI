@@ -69,7 +69,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
-		Handler:           router.New(logger, pool, registration, login, middleware.Authenticate(tokens, users)),
+		Handler:           router.New(logger, pool, registration, login, middleware.Authenticate(tokens, users), users),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	logger.Info("starting HTTP server", "addr", server.Addr)

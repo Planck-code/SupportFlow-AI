@@ -68,7 +68,7 @@ func TestLoginAndAuthenticationHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), pingFunc(func(context.Context) error { return nil }), nil, login, middleware.Authenticate(tokens, users))
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), pingFunc(func(context.Context) error { return nil }), nil, login, middleware.Authenticate(tokens, users), nil)
 	request := func(method, path, body, header string) *httptest.ResponseRecorder {
 		t.Helper()
 		w := httptest.NewRecorder()
