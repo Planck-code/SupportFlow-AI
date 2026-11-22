@@ -1,6 +1,6 @@
 # SupportFlow AI 架构设计
 
-> 状态：M1～M6 已通过验收，已实现工单创建、查询、客服队列及事件读取。
+> 状态：M1～M6 已通过验收，M6 后补充 M5.1 管理员创建工作人员接口。
 > 更新日期：2026-11-22。
 > 业务规则以 [PRD.md](PRD.md) 为准，开发顺序见 [ROADMAP.md](ROADMAP.md)。
 
@@ -156,7 +156,9 @@ M4 实际调用流程：ShouldBindJSON → Login Service（共享邮箱规范化
 
 ### 5.2 授权与状态
 
-M5 的信任边界是具有数据库访问权的 CLI。公开 Register 固定使用 user，CLI 的 CreateStaff 只接受 admin 或 agent。两条路径共用校验、bcrypt 与单次 INSERT，邮箱唯一约束负责并发和重复创建保护。沿用版本 2 的 users 表。
+具有数据库访问权的操作者使用 CLI 初始化首个管理员或恢复工作人员访问。M5.1 增加受保护的 HTTP 入口，复用 main 已注入的 Registration。Authenticate 通过 JWT 和数据库加载当前身份，RequireRole(admin) 检查其当前角色，再由 Handler 处理创建请求。公开 Register 固定使用 user。CLI 与管理员 API 共用 CreateStaff、bcrypt、同一 Repository 的 INSERT 和邮箱唯一约束。
+
+POST /admin/staff 严格接受 email、password、display_name、role 四个字符串。成功插入后用 slog 记录 staff account created，业务字段为 request_id、actor_id、new_user_id 和 role。actor_id 来自 Gin Context，目标 ID 与角色来自创建结果。客户端收到 UserResponse。审计使用进程日志，与数据库插入并非同一事务。数据库沿用迁移版本 3。
 
 管理员目录的路由顺序为 Authenticate → RequireRole(admin) → ListAgents。认证中间件按 JWT 的 sub 读取数据库当前身份，角色中间件从 Context 读取该结果。目录查询把 role=agent 条件同时用于 COUNT 和分页查询，按 id ASC 排序，仅选择安全字段。总数与列表是两条查询，并发增删时不保证同一快照。
 
@@ -188,6 +190,7 @@ M5 的信任边界是具有数据库访问权的 CLI。公开 Register 固定使
 | MVP | `POST /auth/login` | 公开，返回访问令牌 |
 | MVP | `GET /users/me` | 已登录，当前用户信息 |
 | MVP | `GET /admin/agents` | 管理员，分页查询可分配客服 |
+| MVP · M5.1 | `POST /admin/staff` | 当前管理员创建 agent 或 admin，返回 201 |
 | MVP | `POST /tickets` | 普通用户，创建工单 |
 | MVP | `GET /tickets` | 按当前角色查询可见工单 |
 | MVP | `GET /tickets/queue` | 客服，未分配队列摘要 |

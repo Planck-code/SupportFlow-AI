@@ -2,6 +2,20 @@
 
 面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M6 已通过验收。** 普通用户可以提交和查询工单，客服可以浏览未分配队列，管理员可以查询全部工单。
 
+## M5.1 管理员创建工作人员（M6 后补充）
+
+首个管理员通过下文 M5 的 CLI 初始化。随后管理员可在 Postman 登录 `POST /api/v1/auth/login`，将返回的 access_token 填入 Bearer Token，再向 `POST /api/v1/admin/staff` 发送 raw JSON。示例中的密码变量请在本地填写。
+
+```json
+{"email":"agent@example.test","password":"{{staff_password}}","display_name":"客服小王","role":"agent"}
+```
+
+创建管理员时使用新邮箱并将 role 改为 admin。成功返回 201 和 id、email、display_name、role、created_at。随后用新账号登录验证：客服应出现在管理员的 `GET /api/v1/admin/agents` 列表，新管理员可用自己的令牌访问该接口。创建者由当前认证身份决定，发送 actor_id、id 或其他额外字段均返回 400。
+
+匿名或令牌无效返回 401，普通用户、客服和已降权管理员返回 403，非法角色或输入返回 400，重复邮箱返回 409。成功操作以 request_id 关联操作者、新账号和角色。CLI 仍可用于本地恢复；公开注册只创建普通用户。
+
+2026-11-22 的真实验收在专用空 MySQL 库启动 API 进程，覆盖两种角色的创建与登录、客服列表、降权、唯一约束冲突、数据库写入失败和审计元数据。按文末集成测试命令可重现。迁移版本为 3。
+
 ## M6 工单提交与查询
 
 在项目根目录按下文导入环境变量，启动 MySQL，运行 `go run ./cmd/migrate up`、`go run ./cmd/migrate version`，确认版本 3 且 dirty=false，再运行 `go run ./cmd/api`。

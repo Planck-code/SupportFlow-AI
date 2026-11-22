@@ -10,9 +10,10 @@ import (
 	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"github.com/Planck-code/SupportFlow-AI/internal/middleware"
 	"github.com/Planck-code/SupportFlow-AI/internal/model"
+	"github.com/Planck-code/SupportFlow-AI/internal/service"
 )
 
-func New(logger *slog.Logger, db handler.Pinger, registration handler.Registrar, login handler.LoginService, authenticate gin.HandlerFunc, agents handler.AgentDirectory, tickets handler.Tickets) *gin.Engine {
+func New(logger *slog.Logger, db handler.Pinger, registration *service.Registration, login handler.LoginService, authenticate gin.HandlerFunc, agents handler.AgentDirectory, tickets handler.Tickets) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.RequestLog(logger))
 	// Gin's default recovery dumps request headers. Keep panic logs metadata-only.
@@ -29,7 +30,9 @@ func New(logger *slog.Logger, db handler.Pinger, registration handler.Registrar,
 	r.POST("/api/v1/auth/register", handler.RegisterUser(registration))
 	r.POST("/api/v1/auth/login", handler.LoginUser(login))
 	r.GET("/api/v1/users/me", authenticate, handler.Me)
-	r.GET("/api/v1/admin/agents", authenticate, middleware.RequireRole(model.RoleAdmin), handler.ListAgents(agents))
+	admin := r.Group("/api/v1/admin", authenticate, middleware.RequireRole(model.RoleAdmin))
+	admin.GET("/agents", handler.ListAgents(agents))
+	admin.POST("/staff", handler.CreateStaff(registration, logger))
 	group := r.Group("/api/v1/tickets", authenticate)
 	group.POST("", middleware.RequireRole(model.RoleUser), tickets.Create)
 	group.GET("", tickets.List)

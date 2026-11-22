@@ -8,13 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,85 +18,14 @@ import (
 	"github.com/Planck-code/SupportFlow-AI/internal/service"
 )
 
-// Start the actual cmd/api binary against the schema verified by testDatabase.
-// The child is stopped before the fixture drops any of its tables.
-func startTicketAPI(t *testing.T, schema string) string {
-	t.Helper()
-	binary := filepath.Join(t.TempDir(), "ticket-api.exe")
-	if out, err := exec.Command("go", "build", "-o", binary, "../../cmd/api").CombinedOutput(); err != nil {
-		t.Fatalf("build API: %s", out)
-	}
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
-	listener.Close()
-	cmd := exec.Command(binary)
-	cmd.Env = append(os.Environ(), "DB_NAME="+schema, "PORT="+port, "JWT_SECRET="+rand.Text()+rand.Text())
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
-	url := "http://127.0.0.1:" + port
-	client := http.Client{Timeout: time.Second}
-	for i := 0; i < 60; i++ {
-		resp, err := client.Get(url + "/readyz")
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == 200 {
-				return url
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatal("API readiness timeout")
-	return ""
-}
-
 func TestTicketHTTPMySQL(t *testing.T) {
 	db, runner := testDatabase(t)
 	if err := runner.Up(); err != nil {
 		t.Fatal(err)
 	}
 	assertVersion(t, runner, 3)
-	base := startTicketAPI(t, os.Getenv("TEST_DATABASE_NAME")) + "/api/v1"
-	client := http.Client{Timeout: 5 * time.Second}
-	call := func(method, path, token string, input any, want int) map[string]any {
-		t.Helper()
-		data, err := json.Marshal(input)
-		if err != nil {
-			t.Fatal(err)
-		}
-		req, err := http.NewRequest(method, base+path, bytes.NewReader(data))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		raw, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if resp.StatusCode != want {
-			t.Fatalf("%s %s returned %d, want %d", method, path, resp.StatusCode, want)
-		}
-		var m map[string]any
-		if json.Unmarshal(raw, &m) != nil {
-			t.Fatal("invalid JSON response")
-		}
-		if want >= 400 && (m["request_id"] != resp.Header.Get("X-Request-ID") || m["request_id"] == "" || len(m) != 3) {
-			t.Fatal("invalid error envelope")
-		}
-		return m
-	}
+	base, _ := startTestAPI(t, os.Getenv("TEST_DATABASE_NAME"))
+	call := liveRequests(t, base+"/api/v1")
 	reg := service.NewRegistration(repository.NewUsers(db))
 	password := rand.Text()
 	ids := map[string]uint64{}
