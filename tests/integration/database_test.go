@@ -58,11 +58,11 @@ func testDatabase(t *testing.T) (*gorm.DB, *migrate.Migrate) {
 	if count != 0 {
 		t.Fatal("test database must be empty; refusing to change existing tables")
 	}
-	// Only after verifying schema identity AND emptiness may we own these two tables.
+	// Only after verifying schema identity AND emptiness may we own the tables created by our migrations.
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
-		for _, statement := range []string{"DROP TABLE IF EXISTS users", "DROP TABLE IF EXISTS schema_migrations"} {
+		for _, statement := range []string{"DROP TABLE IF EXISTS ticket_events", "DROP TABLE IF EXISTS tickets", "DROP TABLE IF EXISTS users", "DROP TABLE IF EXISTS schema_migrations"} {
 			if err := db.WithContext(cleanupCtx).Exec(statement).Error; err != nil {
 				t.Error("cannot clean owned test tables; inspect test schema before rerunning")
 			}
@@ -108,15 +108,29 @@ func TestDatabaseAndMigrations(t *testing.T) {
 	if db.Migrator().HasTable("users") {
 		t.Fatal("baseline unexpectedly created users")
 	}
-	if err := runner.Up(); err != nil {
+	if err := runner.Steps(1); err != nil {
 		t.Fatal("users migration up failed")
 	}
 	assertVersion(t, runner, 2)
 	if !db.Migrator().HasTable("users") {
 		t.Fatal("users table missing")
 	}
+	if err := runner.Up(); err != nil {
+		t.Fatal(err)
+	}
+	assertVersion(t, runner, 3)
+	if !db.Migrator().HasTable("tickets") || !db.Migrator().HasTable("ticket_events") {
+		t.Fatal("missing ticket tables")
+	}
 	if err := runner.Up(); !errors.Is(err, migrate.ErrNoChange) {
 		t.Fatal("repeated up should report no change")
+	}
+	if err := runner.Steps(-1); err != nil {
+		t.Fatal(err)
+	}
+	assertVersion(t, runner, 2)
+	if db.Migrator().HasTable("tickets") || db.Migrator().HasTable("ticket_events") {
+		t.Fatal("ticket down left tables")
 	}
 	if err := runner.Steps(-1); err != nil {
 		t.Fatal("users down failed")
@@ -128,7 +142,7 @@ func TestDatabaseAndMigrations(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal("users re-up failed")
 	}
-	assertVersion(t, runner, 2)
+	assertVersion(t, runner, 3)
 	if err := runner.Down(); err != nil {
 		t.Fatal("full down failed")
 	}
@@ -138,5 +152,5 @@ func TestDatabaseAndMigrations(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal("full re-up failed")
 	}
-	assertVersion(t, runner, 2)
+	assertVersion(t, runner, 3)
 }

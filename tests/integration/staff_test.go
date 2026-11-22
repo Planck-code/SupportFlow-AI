@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"log/slog"
 	"net/http/httptest"
 	"os"
@@ -88,7 +89,7 @@ func TestStaffDirectoryMySQL(t *testing.T) {
 	}
 	pool, _ := db.DB()
 	var logs bytes.Buffer
-	r := router.New(slog.New(slog.NewJSONHandler(&logs, nil)), pool, reg, nil, middleware.Authenticate(tokens, users), users)
+	r := router.New(slog.New(slog.NewJSONHandler(&logs, nil)), pool, reg, nil, middleware.Authenticate(tokens, users), users, handler.Tickets{})
 	issue := func(id uint64) string {
 		raw, err := tokens.Issue(id)
 		if err != nil {

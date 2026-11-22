@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"log/slog"
 	"net/http"
 	"os"
@@ -67,9 +68,10 @@ func main() {
 		logger.Error("cannot initialize login service")
 		os.Exit(1)
 	}
+	tickets := handler.Tickets{Service: service.NewTicketService(repository.NewTickets(db))}
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
-		Handler:           router.New(logger, pool, registration, login, middleware.Authenticate(tokens, users), users),
+		Handler:           router.New(logger, pool, registration, login, middleware.Authenticate(tokens, users), users, tickets),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	logger.Info("starting HTTP server", "addr", server.Addr)

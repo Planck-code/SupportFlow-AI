@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +23,7 @@ func unavailableDB() pingFunc {
 
 func TestHealthz(t *testing.T) {
 	var logs bytes.Buffer
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB(), nil, nil, nil, nil)
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB(), nil, nil, nil, nil, handler.Tickets{})
 	req := httptest.NewRequest(http.MethodGet, "/healthz?token=private-query", nil)
 	req.Header.Set("Authorization", "Bearer private-header")
 	req.Header.Set("X-Request-ID", "untrusted-id")
@@ -60,7 +61,7 @@ func TestHealthz(t *testing.T) {
 
 func TestUnknownRouteDoesNotLogBodyOrRawPath(t *testing.T) {
 	var logs bytes.Buffer
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB(), nil, nil, nil, nil)
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), unavailableDB(), nil, nil, nil, nil, handler.Tickets{})
 	req := httptest.NewRequest(http.MethodPost, "/private-path", strings.NewReader("private-body"))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -81,7 +82,7 @@ func TestReadinessTracksFailureAndRecovery(t *testing.T) {
 		return errors.New("private database error")
 	})
 	var logs bytes.Buffer
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), db, nil, nil, nil, nil)
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), db, nil, nil, nil, nil, handler.Tickets{})
 	for _, state := range []bool{true, false, true} {
 		available = state
 		for _, path := range []string{"/readyz", "/healthz"} {

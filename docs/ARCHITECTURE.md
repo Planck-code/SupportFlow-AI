@@ -1,6 +1,6 @@
 # SupportFlow AI 架构设计
 
-> 状态：M1～M5 已通过验收，支持工作人员初始化与管理员查询客服。
+> 状态：M1～M6 已通过验收，已实现工单创建、查询、客服队列及事件读取。
 > 更新日期：2026-11-22。
 > 业务规则以 [PRD.md](PRD.md) 为准，开发顺序见 [ROADMAP.md](ROADMAP.md)。
 
@@ -131,7 +131,9 @@ web/                   # A4 才创建 Vue 演示端
 
 M2 实现选择：`go run ./cmd/migrate up|version` 从环境读取数据库配置，避免在命令行拼接含密码的 DSN。该 CLI 只封装官方 golang-migrate 引擎，不自行实现版本管理。基线编号 000001 的 up/down 均为 `SELECT 1`，仅建立迁移版本；不提前建业务表。
 
-M3 增加 000002 users 迁移，当前最新版本为 2；不修改 000001。users.email 继承 `utf8mb4_0900_ai_ci`，唯一比较不区分大小写及重音；role 使用二进制排序规则和 CHECK 保证仅接受三种小写角色。注册默认角色由 Service 固定。GORM NowFunc 显式返回 UTC 时间。测试库在核验库名及空库后才执行迁移和清理，清理范围仅限该库本次拥有的 users/schema_migrations。
+000002 建立 users 表。users.email 继承 `utf8mb4_0900_ai_ci`，唯一比较不区分大小写及重音。role 使用二进制排序规则和 CHECK。GORM NowFunc 返回 UTC 时间。
+
+000003 建立 tickets 和 ticket_events。TicketService.Create 在事务回调内通过绑定同一 tx 的 Repository 插入工单和 created 事件。事件的 metadata 仅记录初始状态。ticketScope 将当前身份转为 requester_id 或 assignee_id 条件，管理员可查询全部。详情与事件使用相同归属条件，事件的 COUNT 和分页读取还以可见工单 ID 子查询限定范围。队列单独查询 open 且 assignee_id IS NULL 的五个摘要字段。普通列表省略正文，详情包含正文。
 
 GORM 以 MySQL 8.4 为目标创建底层 `database/sql` 连接池，跳过隐式版本查询和自动 Ping，主入口执行初次限时 Ping。配置缺失时拒绝启动；数据库暂不可达只记录警告并继续提供 HTTP 服务，以便 `/healthz` 保持独立，`/readyz` 每次重新 Ping，最长 2 秒。驱动连接、读写超时默认 3 秒；连接池默认最大 10、空闲 5、生命周期 30 分钟。连接使用 UTC 和 utf8mb4，不向响应或日志打印 DSN。API 连接不允许多语句，迁移单独使用允许多语句的连接池。
 

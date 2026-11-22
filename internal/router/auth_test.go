@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
@@ -68,7 +69,7 @@ func TestLoginAndAuthenticationHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), pingFunc(func(context.Context) error { return nil }), nil, login, middleware.Authenticate(tokens, users), nil)
+	r := New(slog.New(slog.NewJSONHandler(&logs, nil)), pingFunc(func(context.Context) error { return nil }), nil, login, middleware.Authenticate(tokens, users), nil, handler.Tickets{})
 	request := func(method, path, body, header string) *httptest.ResponseRecorder {
 		t.Helper()
 		w := httptest.NewRecorder()

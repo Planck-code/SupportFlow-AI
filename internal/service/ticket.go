@@ -1,0 +1,112 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/Planck-code/SupportFlow-AI/internal/dto"
+	"github.com/Planck-code/SupportFlow-AI/internal/model"
+	"github.com/Planck-code/SupportFlow-AI/internal/repository"
+)
+
+var ErrTicketForbidden = errors.New("ticket operation forbidden")
+
+type TicketService struct{ repo *repository.Tickets }
+
+func NewTicketService(repo *repository.Tickets) *TicketService { return &TicketService{repo} }
+
+func validCategory(s string) bool {
+	switch s {
+	case "general", "account", "technical", "billing":
+		return true
+	}
+	return false
+}
+
+func validText(s string, max int) bool {
+	return strings.TrimSpace(s) != "" && utf8.RuneCountInString(s) <= max
+}
+
+func (s *TicketService) Create(ctx context.Context, u dto.UserResponse, in dto.CreateTicket) (dto.TicketDetail, error) {
+	if u.Role != model.RoleUser || u.ID == 0 {
+		return dto.TicketDetail{}, ErrTicketForbidden
+	}
+	if !validText(in.Title, 120) || !validText(in.Description, 10000) || in.Category == nil || !validCategory(*in.Category) {
+		return dto.TicketDetail{}, ErrInvalidInput
+	}
+	t := model.Ticket{RequesterID: u.ID, Title: in.Title, Description: in.Description, Category: *in.Category, Priority: "normal", Status: "open"}
+	err := s.repo.Transaction(ctx, func(tx *repository.Tickets) error {
+		if err := tx.Insert(ctx, &t); err != nil {
+			return err
+		}
+		return tx.InsertEvent(ctx, &model.TicketEvent{TicketID: t.ID, ActorID: u.ID, EventType: "created", Metadata: []byte(`{"status":"open"}`)})
+	})
+	if err != nil {
+		return dto.TicketDetail{}, err
+	}
+	return dto.Detail(t), nil
+}
+
+func ticketScope(u dto.UserResponse) (repository.TicketScope, error) {
+	if u.ID != 0 {
+		switch u.Role {
+		case model.RoleUser:
+			return repository.TicketScope{RequesterID: u.ID}, nil
+		case model.RoleAgent:
+			return repository.TicketScope{AssigneeID: u.ID}, nil
+		case model.RoleAdmin:
+			return repository.TicketScope{}, nil
+		}
+	}
+	return repository.TicketScope{}, ErrTicketForbidden
+}
+
+func (s *TicketService) List(ctx context.Context, u dto.UserResponse, f dto.TicketFilter, p dto.Page) ([]dto.TicketSummary, int64, error) {
+	scope, err := ticketScope(u)
+	if err != nil {
+		return nil, 0, err
+	}
+	if f.AssigneeID != 0 || f.Unassigned {
+		if u.Role != model.RoleAdmin || f.AssigneeID != 0 && f.Unassigned {
+			return nil, 0, ErrInvalidInput
+		}
+	}
+	switch f.Status {
+	case "", "open", "in_progress", "resolved", "closed":
+	default:
+		return nil, 0, ErrInvalidInput
+	}
+	if f.Category != "" && !validCategory(f.Category) {
+		return nil, 0, ErrInvalidInput
+	}
+	return s.repo.List(ctx, scope, f, p)
+}
+
+func (s *TicketService) Queue(ctx context.Context, u dto.UserResponse, category string, p dto.Page) ([]dto.QueueItem, int64, error) {
+	if u.Role != model.RoleAgent || u.ID == 0 {
+		return nil, 0, ErrTicketForbidden
+	}
+	if category != "" && !validCategory(category) {
+		return nil, 0, ErrInvalidInput
+	}
+	return s.repo.Queue(ctx, category, p)
+}
+
+func (s *TicketService) Detail(ctx context.Context, u dto.UserResponse, id uint64) (dto.TicketDetail, error) {
+	scope, err := ticketScope(u)
+	if err != nil {
+		return dto.TicketDetail{}, err
+	}
+	t, err := s.repo.Find(ctx, scope, id)
+	return dto.Detail(t), err
+}
+
+func (s *TicketService) Events(ctx context.Context, u dto.UserResponse, id uint64, p dto.Page) ([]dto.Event, int64, error) {
+	scope, err := ticketScope(u)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.repo.Events(ctx, scope, id, p)
+}

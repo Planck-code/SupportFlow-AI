@@ -1,12 +1,30 @@
 # SupportFlow AI
 
-面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M5 已通过验收。** 当前支持普通用户注册、登录、JWT 身份认证、工作人员初始化和管理员查询客服。
+面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M6 已通过验收。** 普通用户可以提交和查询工单，客服可以浏览未分配队列，管理员可以查询全部工单。
+
+## M6 工单提交与查询
+
+在项目根目录按下文导入环境变量，启动 MySQL，运行 `go run ./cmd/migrate up`、`go run ./cmd/migrate version`，确认版本 3 且 dirty=false，再运行 `go run ./cmd/api`。
+
+在 Postman 中使用本地环境变量 `base=http://localhost:8080/api/v1`，分别登录普通用户、客服和管理员。以下请求均使用对应的 Bearer Token。
+
+| 方法与路径（基于 `{{base}}`） | 验收方法 |
+|---|---|
+| POST /tickets | 普通用户以 raw JSON 提交 `{"title":"无法登录","description":"重置密码后仍提示失败","category":"account"}`，得到 201，保存响应中的 id。省略 category 时为 general。 |
+| GET /tickets | 用 `?status=open&category=account&page=1&page_size=1` 检查 items 和 total。管理员可加 `unassigned=true` 或单独指定 `assignee_id`。 |
+| GET /tickets/queue | 切换客服令牌。未分配摘要只有 id、title、category、priority、created_at，支持分类和分页。 |
+| GET /tickets/:id | 将 :id 替换为创建时的编号。创建人和管理员得到 200，其他用户和未负责的客服得到 404。 |
+| GET /tickets/:id/events | 同样的可见范围，创建人可看到 created 事件、操作者和初始状态。 |
+
+创建接口只使用 title、description、category。身份和业务状态字段由服务端填写。列表默认第 1 页、每页 20 条，最大 100。没有匹配行时 items 为 []。工单按创建时间、ID 倒序，事件按 ID 升序。COUNT 与分页读取是独立查询，并发写入时不同页可能发生移动。
+
+运行 `go test -tags=integration -count=1 -v ./tests/integration` 可复现实测。工单测试会在已核验的专用空库启动实际 API，通过 HTTP 验证五个端点，并用测试库 CHECK 约束拒绝一条事件写入，验证工单回滚。开发库仅执行 up。
 
 数据库由 Compose 管理，API 和工作人员 CLI 共用 GORM 与编号 SQL 迁移。数据库不可用时，API 的 `/healthz` 返回 200，`/readyz` 返回 503。
 
 ## M5 工作人员初始化与客服列表
 
-在项目根目录，按下文 PowerShell 步骤导入数据库环境变量并迁移到版本 2。运行 CLI 的操作者需要能使用该数据库账号。每次执行只创建一条记录，邮箱已存在时命令以非零状态退出。
+在项目根目录，按下文 PowerShell 步骤导入数据库环境变量并执行迁移。运行 CLI 的操作者需要能使用该数据库账号。每次执行只创建一条记录，邮箱已存在时命令以非零状态退出。
 
 ```powershell
 $staffInput = Read-Host '输入新账号密码' -AsSecureString
@@ -265,7 +283,7 @@ go run ./cmd/migrate version
 
 这是基于官方 golang-migrate 引擎的项目内 CLI，复用数据库环境变量，避免把带密码的 DSN 放进命令行。无需全局安装迁移工具。它与 API 分开运行，不使用 `AutoMigrate`。
 
-`000001_baseline` 的 up/down 均只有 `SELECT 1`，用于建立迁移基线；M3 的 `000002_create_users` 创建 users 表、邮箱唯一约束和角色约束。完整 up 后当前预期版本 **2** 且 `dirty=false`，重复 up 应成功且不产生新版本。`schema_migrations` 由迁移引擎维护。未修改 000001，也不在开发库执行 down。
+`000001_baseline` 建立迁移基线，`000002_create_users` 创建 users 表，`000003_tickets` 创建 tickets 和 ticket_events。完整 up 后当前预期版本 **3** 且 `dirty=false`。版本由 schema_migrations 记录。
 
 未来按编号增加迁移，不修改已应用文件。若 dirty，停止重试并检查迁移 SQL 和数据库实际状态；本 CLI 不提供 force 或生产回滚命令。迁移失败只输出不含 DSN 的提示，不将可能含业务数据的数据库错误原文写入日志。
 
@@ -292,7 +310,7 @@ $env:TEST_DATABASE_NAME = 'supportflow_m2_test'
 go test -tags=integration -count=1 -v ./tests/integration
 ```
 
-若自定义了 `DB_USER`，同步修改授权语句。测试使用应用的 host、port、user、password，只将库名改为 `TEST_DATABASE_NAME`，不使用 root。测试验证真实 Ping、GORM SQL、会话 utf8mb4/UTC、版本 1 基线、版本 2 users up/down、重复 up 和完整 down/up，再测试真实注册、bcrypt、唯一索引和 8 并发 HTTP 请求。每个测试先验证选中库名与空库，结束后仅清理本次拥有的 users 和 schema_migrations 表，保证下次可重复运行。不要同时在这个测试库执行其他迁移或业务操作；测试不使用 `t.Parallel`。
+若自定义了 `DB_USER`，同步修改授权语句。测试使用应用的连接配置，将库名改为 `TEST_DATABASE_NAME`。确认选中的是专用空库后执行迁移。每个测试结束按 ticket_events → tickets → users → schema_migrations 顺序清理本次拥有的表。请独占测试库运行整套测试。
 
 显式运行集成测试而未配置数据库时会失败，不静默跳过；普通 `go test ./...` 不包含带 `integration` 标签的测试，普通测试通过不代表真实 MySQL 验收通过。这里具体采用 `TEST_DATABASE_NAME` 配合 `DB_*`，无需额外填写带密码的测试 DSN。
 

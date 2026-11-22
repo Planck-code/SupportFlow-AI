@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
@@ -28,12 +29,12 @@ func TestRegistrationMySQL(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal("migration failed")
 	}
-	assertVersion(t, runner, 2)
+	assertVersion(t, runner, 3)
 	pool, _ := db.DB()
 	users := repository.NewUsers(db)
 	registration := service.NewRegistration(users)
 	var logs bytes.Buffer
-	r := router.New(slog.New(slog.NewJSONHandler(&logs, nil)), pool, registration, nil, nil, users)
+	r := router.New(slog.New(slog.NewJSONHandler(&logs, nil)), pool, registration, nil, nil, users, handler.Tickets{})
 	password := " test-password-preserved "
 	email := "register@example.com"
 	request := func(address string) (int, dto.UserResponse) {

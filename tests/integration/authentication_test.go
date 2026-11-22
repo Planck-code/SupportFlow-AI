@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -29,7 +30,7 @@ func TestAuthenticationMySQL(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal("migration failed")
 	}
-	assertVersion(t, runner, 2)
+	assertVersion(t, runner, 3)
 	users := repository.NewUsers(db)
 	tokens, err := auth.NewJWT(strings.Repeat("integration-test-", 3))
 	if err != nil {
@@ -41,7 +42,7 @@ func TestAuthenticationMySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := router.New(logger, pool, service.NewRegistration(users), login, middleware.Authenticate(tokens, users), users)
+	r := router.New(logger, pool, service.NewRegistration(users), login, middleware.Authenticate(tokens, users), users, handler.Tickets{})
 	request := func(method, path string, body any, token string) *httptest.ResponseRecorder {
 		t.Helper()
 		data, _ := json.Marshal(body)
@@ -131,7 +132,7 @@ func TestAuthenticationMySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r = router.New(logger, failedPool, service.NewRegistration(failedUsers), failedLogin, middleware.Authenticate(tokens, failedUsers), failedUsers)
+	r = router.New(logger, failedPool, service.NewRegistration(failedUsers), failedLogin, middleware.Authenticate(tokens, failedUsers), failedUsers, handler.Tickets{})
 	credentials["email"] = "login@example.com"
 	credentials["password"] = " actual-test-password "
 	if w := request("POST", "/api/v1/auth/login", credentials, ""); w.Code != 500 {
