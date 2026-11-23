@@ -26,3 +26,11 @@ type TicketEvent struct {
 	Metadata  json.RawMessage
 	CreatedAt time.Time
 }
+
+type TicketMessage struct {
+	ID        uint64
+	TicketID  uint64
+	AuthorID  uint64
+	Content   string
+	CreatedAt time.Time
+}

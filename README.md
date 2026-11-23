@@ -1,6 +1,20 @@
 # SupportFlow AI
 
-面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M7 及补充任务 M5.1 已通过验收。** 用户提交工单后，客服可以从队列认领，管理员也可以直接分配或转派。
+面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M8 及补充任务 M5.1 已通过验收。** 用户提交工单后可以补充消息，客服认领或被分配后可以回复，管理员可以查看沟通记录并转派。
+
+## M8 工单沟通
+
+在 PowerShell 中按下文导入本地 `.env`，启动 Compose MySQL。执行 `go run ./cmd/migrate up` 和 `go run ./cmd/migrate version`，确认版本为 4、`dirty=false` 后运行 `go run ./cmd/api`。
+
+两个接口共用路径 `/api/v1/tickets/:id/messages`。POST 只接受 raw JSON `{"content":"重启后仍然出现这个问题。"}`。正文允许 1～5000 个 Unicode 字符，须包含非空白字符。成功返回 201 及 `id`、`ticket_id`、`author_id`、`content`、`created_at`。GET 按消息 ID 升序返回 `items/total/page/page_size`，默认第 1 页、每页 20 条，最多 100 条。
+
+**Postman 验收**
+
+1. 以普通用户创建工单，将响应的 `id` 保存为 `ticketId`。用同一令牌向 `/api/v1/tickets/{{ticketId}}/messages` 发送 POST，预期 201。未认领的客服 A 此时 GET 消息应为 404。
+2. 用客服 A 向该工单的 `/claim` 发送 POST。切换用户与 A 的令牌分别发送一条消息，用 `GET /messages?page=2&page_size=2`（接在工单路径后）查看第三条，再从 `/events` 核对 `message_added` 中的 `message_id`。
+3. 用管理员令牌 GET 消息，预期 200；用管理员 POST 回复，预期 403。向该工单的 `/assignee` 发送 PUT 分配给客服 B，A 的后续 GET 和 POST 均应为 404，B 可以读取历史并回复。
+
+配置好独立空测试库后，运行 `go test -tags=integration -count=1 -v -run TestMessagesLiveMySQL ./tests/integration` 可复现真实网络验收。该测试启动 API、验证两种行锁顺序，并在测试库强制两次 INSERT 分别失败后核对消息与事件数量。完整回归结果见 [M8 验收记录](docs/ROADMAP.md#m8-工单沟通)。
 
 ## M7 认领、分配与转派
 
@@ -30,7 +44,7 @@
 
 ## M6 工单提交与查询
 
-在项目根目录按下文导入环境变量，启动 MySQL，运行 `go run ./cmd/migrate up`、`go run ./cmd/migrate version`，确认版本 3 且 dirty=false，再运行 `go run ./cmd/api`。
+在项目根目录按下文导入环境变量，启动 MySQL，运行 `go run ./cmd/migrate up`、`go run ./cmd/migrate version`，确认已达到当前版本且 dirty=false，再运行 `go run ./cmd/api`。
 
 在 Postman 中使用本地环境变量 `base=http://localhost:8080/api/v1`，分别登录普通用户、客服和管理员。以下请求均使用对应的 Bearer Token。
 
@@ -309,7 +323,7 @@ go run ./cmd/migrate version
 
 这是基于官方 golang-migrate 引擎的项目内 CLI，复用数据库环境变量，避免把带密码的 DSN 放进命令行。无需全局安装迁移工具。它与 API 分开运行，不使用 `AutoMigrate`。
 
-`000001_baseline` 建立迁移基线，`000002_create_users` 创建 users 表，`000003_tickets` 创建 tickets 和 ticket_events。完整 up 后当前预期版本 **3** 且 `dirty=false`。版本由 schema_migrations 记录。
+`000001_baseline` 建立迁移基线，`000002_create_users` 创建 users 表，`000003_tickets` 创建 tickets 和 ticket_events，`000004_ticket_messages` 创建消息表。完整 up 后当前预期版本 **4** 且 `dirty=false`。版本由 schema_migrations 记录。
 
 未来按编号增加迁移，不修改已应用文件。若 dirty，停止重试并检查迁移 SQL 和数据库实际状态；本 CLI 不提供 force 或生产回滚命令。迁移失败只输出不含 DSN 的提示，不将可能含业务数据的数据库错误原文写入日志。
 
@@ -336,7 +350,7 @@ $env:TEST_DATABASE_NAME = 'supportflow_m2_test'
 go test -tags=integration -count=1 -v ./tests/integration
 ```
 
-若自定义了 `DB_USER`，同步修改授权语句。测试使用应用的连接配置，将库名改为 `TEST_DATABASE_NAME`。确认选中的是专用空库后执行迁移。每个测试结束按 ticket_events → tickets → users → schema_migrations 顺序清理本次拥有的表。请独占测试库运行整套测试。
+若自定义了 `DB_USER`，同步修改授权语句。测试使用应用的连接配置，将库名改为 `TEST_DATABASE_NAME`。确认选中的是专用空库后执行迁移。每个测试结束按 ticket_messages → ticket_events → tickets → users → schema_migrations 顺序清理本次拥有的表。请独占测试库运行整套测试。
 
 显式运行集成测试而未配置数据库时会失败，不静默跳过；普通 `go test ./...` 不包含带 `integration` 标签的测试，普通测试通过不代表真实 MySQL 验收通过。这里具体采用 `TEST_DATABASE_NAME` 配合 `DB_*`，无需额外填写带密码的测试 DSN。
 

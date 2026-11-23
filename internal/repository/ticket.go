@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -115,14 +116,37 @@ func (r *Tickets) Queue(ctx context.Context, category string, p dto.Page) ([]dto
 }
 
 func (r *Tickets) Events(ctx context.Context, s TicketScope, id uint64, p dto.Page) ([]dto.Event, int64, error) {
+	parent, err := r.visibleTicketID(ctx, s, id)
+	if err != nil {
+		return nil, 0, err
+	}
+	q := r.db.WithContext(ctx).Model(&model.TicketEvent{}).Where("ticket_id IN (?)", parent)
+	return pageRows[dto.Event](q, "id, ticket_id, actor_id, event_type, metadata, created_at", "id ASC", p)
+}
+
+func (r *Tickets) visibleTicketID(ctx context.Context, s TicketScope, id uint64) (*gorm.DB, error) {
 	parent := r.visible(ctx, s).Where("id = ?", id)
 	var count int64
 	if err := parent.Count(&count).Error; err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	if count == 0 {
-		return nil, 0, gorm.ErrRecordNotFound
+		return nil, gorm.ErrRecordNotFound
 	}
-	q := r.db.WithContext(ctx).Model(&model.TicketEvent{}).Where("ticket_id IN (?)", parent.Select("id"))
-	return pageRows[dto.Event](q, "id, ticket_id, actor_id, event_type, metadata, created_at", "id ASC", p)
+	return parent.Select("id"), nil
+}
+
+func (r *Tickets) InsertMessage(ctx context.Context, msg *model.TicketMessage) error {
+	// Return the same UTC timestamp as the DATETIME(6) row read by GET.
+	msg.CreatedAt = r.db.NowFunc().UTC().Truncate(time.Microsecond)
+	return r.db.WithContext(ctx).Create(msg).Error
+}
+
+func (r *Tickets) Messages(ctx context.Context, s TicketScope, id uint64, p dto.Page) ([]dto.Message, int64, error) {
+	parent, err := r.visibleTicketID(ctx, s, id)
+	if err != nil {
+		return nil, 0, err
+	}
+	q := r.db.WithContext(ctx).Model(&model.TicketMessage{}).Where("ticket_id IN (?)", parent)
+	return pageRows[dto.Message](q, "id, ticket_id, author_id, content, created_at", "id ASC", p)
 }

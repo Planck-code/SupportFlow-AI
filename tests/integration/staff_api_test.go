@@ -23,7 +23,7 @@ func TestStaffCreationLiveMySQL(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal(err)
 	}
-	assertVersion(t, runner, 3)
+	assertVersion(t, runner, latestVersion)
 	users := repository.NewUsers(db)
 	reg := service.NewRegistration(users)
 	ctx := context.Background()
@@ -126,7 +126,7 @@ func TestStaffCreationLiveMySQL(t *testing.T) {
 		t.Fatal("test demotion failed")
 	}
 	post(adminToken, adminBody, 403)
-	assertVersion(t, runner, 3)
+	assertVersion(t, runner, latestVersion)
 
 	logs, err := os.ReadFile(logPath)
 	if err != nil {

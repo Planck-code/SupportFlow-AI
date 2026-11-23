@@ -30,7 +30,7 @@ func TestAuthenticationMySQL(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal("migration failed")
 	}
-	assertVersion(t, runner, 3)
+	assertVersion(t, runner, latestVersion)
 	users := repository.NewUsers(db)
 	tokens, err := auth.NewJWT(strings.Repeat("integration-test-", 3))
 	if err != nil {

@@ -49,6 +49,14 @@ type Event struct {
 
 type Page struct{ Number, Size int }
 
+type Message struct {
+	ID        uint64    `json:"id"`
+	TicketID  uint64    `json:"ticket_id"`
+	AuthorID  uint64    `json:"author_id"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type TicketFilter struct {
 	Status, Category string
 	AssigneeID       uint64

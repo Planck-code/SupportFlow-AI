@@ -23,7 +23,7 @@ func TestTicketHTTPMySQL(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal(err)
 	}
-	assertVersion(t, runner, 3)
+	assertVersion(t, runner, latestVersion)
 	base, _ := startTestAPI(t, os.Getenv("TEST_DATABASE_NAME"))
 	call := liveRequests(t, base+"/api/v1")
 	reg := service.NewRegistration(repository.NewUsers(db))

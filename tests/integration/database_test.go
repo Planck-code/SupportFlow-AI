@@ -18,6 +18,8 @@ import (
 	"github.com/Planck-code/SupportFlow-AI/internal/database"
 )
 
+const latestVersion = 4
+
 // Each test owns an initially empty dedicated schema. Never run these tests in parallel.
 func testDatabase(t *testing.T) (*gorm.DB, *migrate.Migrate) {
 	t.Helper()
@@ -62,7 +64,7 @@ func testDatabase(t *testing.T) (*gorm.DB, *migrate.Migrate) {
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
-		for _, statement := range []string{"DROP TABLE IF EXISTS ticket_events", "DROP TABLE IF EXISTS tickets", "DROP TABLE IF EXISTS users", "DROP TABLE IF EXISTS schema_migrations"} {
+		for _, statement := range []string{"DROP TABLE IF EXISTS ticket_messages", "DROP TABLE IF EXISTS ticket_events", "DROP TABLE IF EXISTS tickets", "DROP TABLE IF EXISTS users", "DROP TABLE IF EXISTS schema_migrations"} {
 			if err := db.WithContext(cleanupCtx).Exec(statement).Error; err != nil {
 				t.Error("cannot clean owned test tables; inspect test schema before rerunning")
 			}
@@ -115,15 +117,36 @@ func TestDatabaseAndMigrations(t *testing.T) {
 	if !db.Migrator().HasTable("users") {
 		t.Fatal("users table missing")
 	}
-	if err := runner.Up(); err != nil {
+	if err := runner.Steps(1); err != nil {
 		t.Fatal(err)
 	}
 	assertVersion(t, runner, 3)
 	if !db.Migrator().HasTable("tickets") || !db.Migrator().HasTable("ticket_events") {
 		t.Fatal("missing ticket tables")
 	}
+	if err := runner.Steps(1); err != nil {
+		t.Fatal(err)
+	}
+	assertVersion(t, runner, 4)
+	if !db.Migrator().HasTable("ticket_messages") || !db.Migrator().HasIndex("ticket_messages", "idx_messages_ticket") {
+		t.Fatal("missing messages table or pagination index")
+	}
+	var foreignKeys int
+	if err := db.Raw(`SELECT COUNT(*) FROM information_schema.key_column_usage
+		WHERE table_schema = DATABASE() AND table_name = 'ticket_messages'
+		  AND referenced_table_schema = DATABASE() AND referenced_column_name = 'id'
+		  AND (column_name, referenced_table_name) IN (('ticket_id','tickets'), ('author_id','users'))`).Scan(&foreignKeys).Error; err != nil || foreignKeys != 2 {
+		t.Fatal("missing message foreign keys")
+	}
 	if err := runner.Up(); !errors.Is(err, migrate.ErrNoChange) {
 		t.Fatal("repeated up should report no change")
+	}
+	if err := runner.Steps(-1); err != nil {
+		t.Fatal(err)
+	}
+	assertVersion(t, runner, 3)
+	if db.Migrator().HasTable("ticket_messages") || !db.Migrator().HasTable("tickets") {
+		t.Fatal("message down did not preserve ticket schema")
 	}
 	if err := runner.Steps(-1); err != nil {
 		t.Fatal(err)
@@ -142,7 +165,7 @@ func TestDatabaseAndMigrations(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal("users re-up failed")
 	}
-	assertVersion(t, runner, 3)
+	assertVersion(t, runner, latestVersion)
 	if err := runner.Down(); err != nil {
 		t.Fatal("full down failed")
 	}
@@ -152,5 +175,5 @@ func TestDatabaseAndMigrations(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal("full re-up failed")
 	}
-	assertVersion(t, runner, 3)
+	assertVersion(t, runner, latestVersion)
 }

@@ -21,7 +21,7 @@ type Tickets struct{ Service *service.TicketService }
 
 func ticketError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, service.ErrAssignmentConflict):
+	case errors.Is(err, service.ErrAssignmentConflict), errors.Is(err, service.ErrReplyConflict):
 		writeError(c, 409, "ticket_conflict", "ticket action unavailable")
 	case errors.Is(err, service.ErrInvalidAssignee):
 		writeError(c, 400, "invalid_assignee", "assignee must be an existing agent")

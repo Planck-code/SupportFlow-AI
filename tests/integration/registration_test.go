@@ -29,7 +29,7 @@ func TestRegistrationMySQL(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal("migration failed")
 	}
-	assertVersion(t, runner, 3)
+	assertVersion(t, runner, latestVersion)
 	pool, _ := db.DB()
 	users := repository.NewUsers(db)
 	registration := service.NewRegistration(users)
