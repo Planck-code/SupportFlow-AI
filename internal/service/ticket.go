@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"unicode/utf8"
+
+	"gorm.io/gorm"
 
 	"github.com/Planck-code/SupportFlow-AI/internal/dto"
 	"github.com/Planck-code/SupportFlow-AI/internal/model"
@@ -12,6 +15,118 @@ import (
 )
 
 var ErrTicketForbidden = errors.New("ticket operation forbidden")
+var ErrAssignmentConflict = errors.New("ticket action unavailable")
+var ErrInvalidAssignee = errors.New("assignee must be an existing agent")
+
+func (s *TicketService) Claim(ctx context.Context, u dto.UserResponse, id uint64) (dto.TicketDetail, error) {
+	return s.changeAssignment(ctx, u.ID, id, u.ID, model.RoleAgent)
+}
+
+func (s *TicketService) Assign(ctx context.Context, u dto.UserResponse, id, target uint64) (dto.TicketDetail, error) {
+	return s.changeAssignment(ctx, u.ID, id, target, model.RoleAdmin)
+}
+
+func (s *TicketService) changeAssignment(ctx context.Context, actor, id, target uint64, requiredRole string) (dto.TicketDetail, error) {
+	var result dto.TicketDetail
+	err := s.repo.Transaction(ctx, func(tx *repository.Tickets) error {
+		claiming := requiredRole == model.RoleAgent
+		var snapshotRole string
+		var err error
+		if claiming {
+			snapshotRole, err = tx.ClaimantSnapshot(ctx, actor)
+			if err != nil {
+				return err
+			}
+		}
+		ticket, err := tx.Lock(ctx, id)
+		if err != nil {
+			return err
+		}
+		role, err := tx.LockUserRole(ctx, actor)
+		if err != nil {
+			return err
+		}
+		if role != requiredRole {
+			return ErrTicketForbidden
+		}
+
+		if claiming && ticket.AssigneeID == nil && ticket.Status != "open" {
+			return gorm.ErrRecordNotFound
+		}
+		if claiming && ticket.AssigneeID != nil && *ticket.AssigneeID != actor {
+			wasQueued, err := tx.WasInQueue(ctx, id)
+			if err != nil {
+				return err
+			}
+			if wasQueued && snapshotRole == model.RoleAgent {
+				return ErrAssignmentConflict
+			}
+			return gorm.ErrRecordNotFound
+		}
+		event, err := assignmentEvent(ticket, claiming, target)
+		if err != nil {
+			return err
+		}
+		if !claiming {
+			role, err := tx.LockUserRole(ctx, target)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrInvalidAssignee
+			}
+			if err != nil {
+				return err
+			}
+			if role != model.RoleAgent {
+				return ErrInvalidAssignee
+			}
+		}
+		if event == "" {
+			result = dto.Detail(ticket)
+			return nil
+		}
+
+		metadata, err := json.Marshal(map[string]any{
+			"from_status": ticket.Status, "to_status": "in_progress",
+			"from_assignee_id": ticket.AssigneeID, "to_assignee_id": target,
+		})
+		if err != nil {
+			return err
+		}
+		if err := tx.SetAssignment(ctx, id, target); err != nil {
+			return err
+		}
+		if err := tx.InsertEvent(ctx, &model.TicketEvent{TicketID: id, ActorID: actor, EventType: event, Metadata: metadata}); err != nil {
+			return err
+		}
+		// Read back the persisted timestamp, including MySQL's microsecond precision.
+		updated, err := tx.Find(ctx, repository.TicketScope{}, id)
+		if err != nil {
+			return err
+		}
+		result = dto.Detail(updated)
+		return nil
+	})
+	if err != nil {
+		return dto.TicketDetail{}, err
+	}
+	return result, nil
+}
+
+// Empty event means a valid, idempotent assignment.
+func assignmentEvent(t model.Ticket, claiming bool, target uint64) (string, error) {
+	if t.Status == "open" && t.AssigneeID == nil {
+		if claiming {
+			return "claimed", nil
+		}
+		return "assigned", nil
+	}
+	if !claiming && t.Status == "in_progress" && t.AssigneeID != nil {
+		if *t.AssigneeID == target {
+			return "", nil
+		}
+		return "reassigned", nil
+	}
+	return "", ErrAssignmentConflict
+}
 
 type TicketService struct{ repo *repository.Tickets }
 

@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"net/url"
 	"slices"
@@ -19,6 +21,10 @@ type Tickets struct{ Service *service.TicketService }
 
 func ticketError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, service.ErrAssignmentConflict):
+		writeError(c, 409, "ticket_conflict", "ticket action unavailable")
+	case errors.Is(err, service.ErrInvalidAssignee):
+		writeError(c, 400, "invalid_assignee", "assignee must be an existing agent")
 	case errors.Is(err, service.ErrInvalidInput):
 		writeError(c, 400, "invalid_input", "invalid ticket input or query")
 	case errors.Is(err, service.ErrTicketForbidden):
@@ -28,6 +34,62 @@ func ticketError(c *gin.Context, err error) {
 	default:
 		writeError(c, 500, "internal_error", "internal server error")
 	}
+}
+
+// A claim takes no fields; assignment takes exactly one positive integer.
+func assignmentBody(body io.Reader, claim bool) (uint64, bool) {
+	d := json.NewDecoder(body)
+	first, err := d.Token()
+	if claim && err == io.EOF {
+		return 0, true
+	}
+	if err != nil || first != json.Delim('{') {
+		return 0, false
+	}
+	var id uint64
+	if !claim {
+		key, err := d.Token()
+		if err != nil || key != "assignee_id" || d.Decode(&id) != nil || id == 0 {
+			return 0, false
+		}
+	}
+	end, err := d.Token()
+	if err != nil || end != json.Delim('}') {
+		return 0, false
+	}
+	if _, err = d.Token(); err != io.EOF {
+		return 0, false
+	}
+	return id, true
+}
+
+func (h Tickets) Claim(c *gin.Context)  { h.changeAssignment(c, true) }
+func (h Tickets) Assign(c *gin.Context) { h.changeAssignment(c, false) }
+
+func (h Tickets) changeAssignment(c *gin.Context, claim bool) {
+	id, ok := positiveID(c.Param("id"))
+	if !ok {
+		ticketError(c, service.ErrInvalidInput)
+		return
+	}
+	target, ok := assignmentBody(c.Request.Body, claim)
+	if !ok {
+		ticketError(c, service.ErrInvalidInput)
+		return
+	}
+	actor, _ := middleware.CurrentUser(c)
+	var ticket dto.TicketDetail
+	var err error
+	if claim {
+		ticket, err = h.Service.Claim(c.Request.Context(), actor, id)
+	} else {
+		ticket, err = h.Service.Assign(c.Request.Context(), actor, id, target)
+	}
+	if err != nil {
+		ticketError(c, err)
+		return
+	}
+	c.JSON(200, ticket)
 }
 
 func (h Tickets) Create(c *gin.Context) {

@@ -39,5 +39,7 @@ func New(logger *slog.Logger, db handler.Pinger, registration *service.Registrat
 	group.GET("/queue", middleware.RequireRole(model.RoleAgent), tickets.Queue)
 	group.GET("/:id", tickets.Detail)
 	group.GET("/:id/events", tickets.Events)
+	group.POST("/:id/claim", middleware.RequireRole(model.RoleAgent), tickets.Claim)
+	group.PUT("/:id/assignee", middleware.RequireRole(model.RoleAdmin), tickets.Assign)
 	return r
 }

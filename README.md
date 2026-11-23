@@ -1,6 +1,18 @@
 # SupportFlow AI
 
-面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M6 已通过验收。** 普通用户可以提交和查询工单，客服可以浏览未分配队列，管理员可以查询全部工单。
+面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M7 及补充任务 M5.1 已通过验收。** 用户提交工单后，客服可以从队列认领，管理员也可以直接分配或转派。
+
+## M7 认领、分配与转派
+
+在 Postman 中分别用普通用户、客服 A、客服 B 和管理员登录，保存各自的 Bearer Token。以下路径以 `/api/v1` 为前缀。
+
+1. 普通用户向 `POST /tickets` 提交两张工单。客服 A 从 `GET /tickets/queue` 取得编号，此时读取详情返回 404。
+2. 客服 A 向第一张工单的 `POST /tickets/:id/claim` 发送空请求体。预期响应为 200，`status` 为 `in_progress`，`assignee_id` 为 A 的用户 ID。此时 A 可以读取详情和事件，重复认领返回 409。
+3. 管理员从 `GET /admin/agents` 取得两个客服的数字 ID。向第二张工单的 `PUT /tickets/:id/assignee` 发送 raw JSON `{"assignee_id": {{agentAId}}}`，首次分配后在事件列表中可以看到 `assigned`。
+4. 管理员对同一工单改发 B 的 ID，响应详情中的负责人变为 B，事件列表新增 `reassigned`。再次发送 B 的 ID 仍返回 200，比较两次详情的 `updated_at` 和事件总数，两者应相同。
+5. 用 A 和 B 的令牌分别读取第二张工单的详情及 `GET /tickets/:id/events`，预期 A 得到 404，B 得到 200。普通用户调用两个写接口均返回 403，未登录调用返回 401，无效分配目标返回 400。
+
+按下文配置空的专用测试库后，运行 `go test -tags=integration -count=1 -v -run TestAssignmentLiveMySQL ./tests/integration` 可单独复现 M7 网络验收。测试启动实际 API 进程，等两个 HTTP 请求都到达 MySQL 工单行锁后再释放测试锁，并核对 HTTP 结果、最终负责人和事件。测试还强制事件插入失败，核对工单和历史均已回滚。
 
 ## M5.1 管理员创建工作人员（M6 后补充）
 

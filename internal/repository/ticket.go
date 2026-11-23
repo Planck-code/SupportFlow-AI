@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/Planck-code/SupportFlow-AI/internal/dto"
 	"github.com/Planck-code/SupportFlow-AI/internal/model"
@@ -14,7 +16,39 @@ type Tickets struct{ db *gorm.DB }
 func NewTickets(db *gorm.DB) *Tickets { return &Tickets{db} }
 
 func (r *Tickets) Transaction(ctx context.Context, work func(*Tickets) error) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return work(NewTickets(tx)) })
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return work(NewTickets(tx))
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+}
+
+func (r *Tickets) Lock(ctx context.Context, id uint64) (model.Ticket, error) {
+	var ticket model.Ticket
+	err := r.db.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Take(&ticket, id).Error
+	return ticket, err
+}
+
+// A consistent read pins the claimant's queue view before a locking read can
+// wait. The snapshot is used only to distinguish a lost race from a hidden ID.
+func (r *Tickets) ClaimantSnapshot(ctx context.Context, id uint64) (string, error) {
+	var u model.User
+	err := r.db.WithContext(ctx).Select("role").Take(&u, id).Error
+	return u.Role, err
+}
+
+func (r *Tickets) WasInQueue(ctx context.Context, id uint64) (bool, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&model.Ticket{}).Where("id = ? AND status = 'open' AND assignee_id IS NULL", id).Count(&n).Error
+	return n != 0, err
+}
+
+func (r *Tickets) LockUserRole(ctx context.Context, id uint64) (string, error) {
+	var u model.User
+	err := r.db.WithContext(ctx).Clauses(clause.Locking{Strength: "SHARE"}).Select("role").Take(&u, id).Error
+	return u.Role, err
+}
+
+func (r *Tickets) SetAssignment(ctx context.Context, id, agent uint64) error {
+	return r.db.WithContext(ctx).Model(&model.Ticket{}).Where("id = ?", id).Updates(map[string]any{"assignee_id": agent, "status": "in_progress"}).Error
 }
 
 func (r *Tickets) Insert(ctx context.Context, t *model.Ticket) error {
