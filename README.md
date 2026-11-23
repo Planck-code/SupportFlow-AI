@@ -1,6 +1,18 @@
 # SupportFlow AI
 
-面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M8 及补充任务 M5.1 已通过验收。** 用户提交工单后可以补充消息，客服认领或被分配后可以回复，管理员可以查看沟通记录并转派。
+面向 Go 后端学习与实习求职展示的客服工单平台。**M1～M9 及补充任务 M5.1 已通过验收。** 用户可以提交、回复、重开和关闭自己的工单，客服可以认领、沟通和解决工单，管理员可以分配、转派和关闭已解决工单。
+
+## M9 工单处理闭环
+
+按下文在 PowerShell 导入本地环境、启动 MySQL，确认 `go run ./cmd/migrate version` 显示版本 4、`dirty=false`，再运行 `go run ./cmd/api`。在 Postman 中将 `base` 设为 `http://localhost:8080/api/v1`，分别登录用户、客服和管理员，使用各自的 Bearer Token。
+
+1. 用户向 `POST {{base}}/tickets` 提交 `{"title":"无法登录","description":"重置密码后仍提示失败"}`，将响应中的工单 ID 保存为 `ticketId`。以下路径均接在 `{{base}}/tickets/{{ticketId}}` 后。
+2. 客服向 `/claim` 发送 POST，Body 选 none。用户和客服依次向 `/messages` POST 一条 `{"content":"已重试一次"}`，各得 201。
+3. 客服向 `/priority` 发送 PATCH，raw JSON 为 `{"priority":"high"}`，再向 `/resolve` 发送空 POST。两步均返回 200 和工单详情，状态变为 `resolved`。此时再次回复得到 409。
+4. 用户向 `/reopen` 发送空 POST，确认状态回到 `in_progress` 且负责人相同。双方可继续回复。客服再次解决后，用户向 `/close` 发送空 POST，确认状态为 `closed`。管理员也可用另一张已解决工单验证关闭权限。
+5. 用户读取 `GET /events`，按 ID 顺序核对优先级和状态的前后值。只有处理中的工单可调整优先级，重复设置当前值时仍返回 200，比较前后的 `updated_at` 和事件总数应相同。
+
+配置独立空测试库后，运行 `go test -tags=integration -count=1 -v -run TestLifecycleLiveMySQL ./tests/integration` 可复现以上闭环、九组并发请求和数据库故障回滚。[M9 验收记录](docs/ROADMAP.md#m9-处理闭环)
 
 ## M8 工单沟通
 

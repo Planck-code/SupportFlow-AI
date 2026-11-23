@@ -21,7 +21,7 @@ type Tickets struct{ Service *service.TicketService }
 
 func ticketError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, service.ErrAssignmentConflict), errors.Is(err, service.ErrReplyConflict):
+	case errors.Is(err, service.ErrAssignmentConflict), errors.Is(err, service.ErrReplyConflict), errors.Is(err, service.ErrLifecycleConflict):
 		writeError(c, 409, "ticket_conflict", "ticket action unavailable")
 	case errors.Is(err, service.ErrInvalidAssignee):
 		writeError(c, 400, "invalid_assignee", "assignee must be an existing agent")
@@ -38,29 +38,40 @@ func ticketError(c *gin.Context, err error) {
 
 // A claim takes no fields; assignment takes exactly one positive integer.
 func assignmentBody(body io.Reader, claim bool) (uint64, bool) {
-	d := json.NewDecoder(body)
-	first, err := d.Token()
-	if claim && err == io.EOF {
-		return 0, true
-	}
-	if err != nil || first != json.Delim('{') {
-		return 0, false
+	if claim {
+		return 0, readActionBody(body, "", nil) == nil
 	}
 	var id uint64
-	if !claim {
+	if readActionBody(body, "assignee_id", &id) != nil || id == 0 {
+		return 0, false
+	}
+	return id, true
+}
+
+// Read one exact, case-sensitive field. Fieldless actions accept an empty body or {}.
+func readActionBody(body io.Reader, field string, dest any) error {
+	d := json.NewDecoder(body)
+	first, err := d.Token()
+	if field == "" && err == io.EOF {
+		return nil
+	}
+	if err != nil || first != json.Delim('{') {
+		return service.ErrInvalidInput
+	}
+	if field != "" {
 		key, err := d.Token()
-		if err != nil || key != "assignee_id" || d.Decode(&id) != nil || id == 0 {
-			return 0, false
+		if err != nil || key != field || d.Decode(dest) != nil {
+			return service.ErrInvalidInput
 		}
 	}
 	end, err := d.Token()
 	if err != nil || end != json.Delim('}') {
-		return 0, false
+		return service.ErrInvalidInput
 	}
 	if _, err = d.Token(); err != io.EOF {
-		return 0, false
+		return service.ErrInvalidInput
 	}
-	return id, true
+	return nil
 }
 
 func (h Tickets) Claim(c *gin.Context)  { h.changeAssignment(c, true) }

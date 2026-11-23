@@ -52,6 +52,14 @@ func (r *Tickets) SetAssignment(ctx context.Context, id, agent uint64) error {
 	return r.db.WithContext(ctx).Model(&model.Ticket{}).Where("id = ?", id).Updates(map[string]any{"assignee_id": agent, "status": "in_progress"}).Error
 }
 
+func (r *Tickets) SetStatus(ctx context.Context, id uint64, status string) error {
+	return r.db.WithContext(ctx).Model(&model.Ticket{}).Where("id = ?", id).Update("status", status).Error
+}
+
+func (r *Tickets) SetPriority(ctx context.Context, id uint64, priority string) error {
+	return r.db.WithContext(ctx).Model(&model.Ticket{}).Where("id = ?", id).Update("priority", priority).Error
+}
+
 func (r *Tickets) Insert(ctx context.Context, t *model.Ticket) error {
 	return r.db.WithContext(ctx).Create(t).Error
 }

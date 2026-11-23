@@ -43,5 +43,12 @@ func New(logger *slog.Logger, db handler.Pinger, registration *service.Registrat
 	group.POST("/:id/messages", middleware.RequireRole(model.RoleUser, model.RoleAgent), tickets.Reply)
 	group.POST("/:id/claim", middleware.RequireRole(model.RoleAgent), tickets.Claim)
 	group.PUT("/:id/assignee", middleware.RequireRole(model.RoleAdmin), tickets.Assign)
+	registerAction := func(method string, action service.TicketAction) {
+		group.Handle(method, "/:id/"+string(action), middleware.RequireRole(action.Roles()...), tickets.Lifecycle(action))
+	}
+	registerAction(http.MethodPatch, service.ChangePriority)
+	registerAction(http.MethodPost, service.Resolve)
+	registerAction(http.MethodPost, service.Reopen)
+	registerAction(http.MethodPost, service.Close)
 	return r
 }

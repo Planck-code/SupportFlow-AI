@@ -1,36 +1,11 @@
 package handler
 
 import (
-	"encoding/json"
-	"io"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/Planck-code/SupportFlow-AI/internal/middleware"
 	"github.com/Planck-code/SupportFlow-AI/internal/service"
 )
-
-// Read exactly one object with one case-sensitive string field.
-func messageContent(body io.Reader) (string, error) {
-	d := json.NewDecoder(body)
-	open, err := d.Token()
-	if err != nil || open != json.Delim('{') {
-		return "", service.ErrInvalidInput
-	}
-	key, err := d.Token()
-	var content string
-	if err != nil || key != "content" || d.Decode(&content) != nil {
-		return "", service.ErrInvalidInput
-	}
-	end, err := d.Token()
-	if err != nil || end != json.Delim('}') {
-		return "", service.ErrInvalidInput
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return "", service.ErrInvalidInput
-	}
-	return content, nil
-}
 
 func (h Tickets) Reply(c *gin.Context) {
 	id, ok := positiveID(c.Param("id"))
@@ -38,8 +13,8 @@ func (h Tickets) Reply(c *gin.Context) {
 		ticketError(c, service.ErrInvalidInput)
 		return
 	}
-	content, err := messageContent(c.Request.Body)
-	if err != nil {
+	var content string
+	if err := readActionBody(c.Request.Body, "content", &content); err != nil {
 		ticketError(c, err)
 		return
 	}
