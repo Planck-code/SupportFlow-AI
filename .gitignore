@@ -24,6 +24,7 @@ coverage.out
 .idea/
 .vscode/*
 !.vscode/launch.json
+!.vscode/settings.json
 Thumbs.db
 .DS_Store
 

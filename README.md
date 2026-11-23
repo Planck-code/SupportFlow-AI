@@ -81,7 +81,7 @@ try {
 
 `.vscode/launch.json` 将启动包固定为 `cmd/api`、工作目录固定为项目根目录，并通过 `envFile` 自动将 `.env` 注入 Go 进程；无需手动导入环境变量。配置不包含密码，也不修改 Go 程序的配置读取逻辑。参考 [Go 扩展调试文档](https://github.com/golang/vscode-go/blob/master/docs/debugging.md)。
 
-此配置用于 VS Code 的运行和调试（F5），Code Runner 的 `Run Code` 按钮仍执行自己的命令。启动前先停止已有 API，避免端口占用。修改 `.env` 后需要停止并重新启动调试；F5 不会自动启动数据库或执行迁移，有新迁移时仍需按下文在终端导入环境变量并运行迁移。
+**Run Code 启动 API**：用 VS Code 打开项目根目录，确保 MySQL 已启动，打开 `cmd/api/main.go` 并点击 **Run Code**。工作区的 Code Runner 配置会调用 `scripts/run-go.ps1`，从根目录读取 `.env` 后运行当前文件所在的 Go 包。修改配置后在终端按 Ctrl+C，再点 Run Code 即可。若已有 F5 启动的实例，先按 Shift+F5 停止，避免端口冲突。
 
 ## Windows PowerShell 启动
 
