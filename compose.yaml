@@ -1,3 +1,14 @@
+x-app-db: &app-db
+  DB_HOST: mysql
+  DB_PORT: "3306"
+  DB_NAME: ${DB_NAME:-supportflow}
+  DB_USER: ${DB_USER:-supportflow}
+  DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+  DB_TIMEOUT: ${DB_TIMEOUT:-3s}
+  DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-10}
+  DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-5}
+  DB_CONN_MAX_LIFETIME: ${DB_CONN_MAX_LIFETIME:-30m}
+
 services:
   mysql:
     image: mysql:8.4.13
@@ -21,6 +32,30 @@ services:
       timeout: 3s
       retries: 20
       start_period: 30s
+
+  api:
+    build:
+      context: .
+      target: api
+    environment:
+      <<: *app-db
+      PORT: "8080"
+      JWT_SECRET: ${JWT_SECRET:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PORT:-8080}:8080"
+
+  tools:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: tools
+    environment: *app-db
+    depends_on:
+      mysql:
+        condition: service_healthy
 
 volumes:
   mysql_data:

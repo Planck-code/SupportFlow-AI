@@ -1,7 +1,7 @@
 # SupportFlow AI 架构设计
 
-> 状态：M1～M9 及 M6 后补充的 M5.1 已通过验收。
-> 更新日期：2026-11-23。
+> 状态：第一阶段 MVP（M1～M10 及 M5.1）已通过验收。
+> 更新日期：2026-11-24。
 > 业务规则以 [PRD.md](PRD.md) 为准，开发顺序见 [ROADMAP.md](ROADMAP.md)。
 
 ## 1. 单体架构与执行流程
@@ -51,6 +51,10 @@ MySQL
 
 ## 3. 目录结构与职责
 
+M10 的 Dockerfile 使用官方 Go 1.27 Alpine 镜像和精简 Alpine 运行镜像，两者都以镜像摘要固定。先复制 go.mod、go.sum 下载依赖，再复制编译所需的包，复用 BuildKit 编译缓存。构建阶段生成 Linux 的 api、migrate 和 admin。运行阶段的 api target 仅复制 API 二进制，tools target 复制两个命令和完整的 SQL 迁移目录。两个运行镜像都以 UID/GID 65532 执行，工作目录为 `/app`。构建输入由 .dockerignore 的允许清单限定。
+
+Compose 使用默认项目网络提供服务名解析。API 和工具通过 `mysql:3306` 连接数据库，宿主机 Go 进程则通过 `127.0.0.1:DB_PORT` 连接。API 端口从宿主机的 PORT 映射到容器 8080，MySQL 和 API 只在宿主机回环地址发布。MySQL 的健康检查使用应用数据库账号执行 SQL。API 等待 MySQL healthy 后启动，容器内的 wget 再访问 `/readyz` 验证 HTTP 与数据库连接。迁移在启动 API 前用 tools profile 显式执行；同一工具镜像通过覆盖入口运行 admin。命名卷按 Compose 项目隔离，演示、宿主机开发与集成测试的配置方法见[项目首页](../README.md)。
+
 ```text
 cmd/
   api/                 # HTTP 服务入口，加载配置与手动组装依赖
@@ -76,7 +80,7 @@ docs/
 web/                   # A4 才创建 Vue 演示端
 ```
 
-根目录后续按任务增加 `go.mod`、`go.sum`、README、Dockerfile、Compose 配置和 `.env.example`。结构按需创建，不生成空目录或占位业务代码。
+根目录包含 `go.mod`、`go.sum`、README、Dockerfile、Compose 配置和 `.env.example`。`scripts/demo-mvp.ps1` 通过公开 HTTP 接口演示 MVP，`scripts/run-go.ps1` 支持宿主机开发。
 
 规则：
 
