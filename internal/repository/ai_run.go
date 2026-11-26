@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Caller holds the ticket lock. Message writers acquire it before inserting.
+// Called under the ticket lock for creation or in a consistent read for history.
 func (r *Tickets) RecentMessages(ctx context.Context, ticketID uint64, limit int) ([]model.TicketMessage, error) {
 	var rows []model.TicketMessage
 	err := r.db.WithContext(ctx).Select("id", "author_id", "content").Where("ticket_id = ?", ticketID).Order("id DESC").Limit(limit).Find(&rows).Error

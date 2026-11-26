@@ -31,7 +31,31 @@ func NewAIRuns(repo *repository.Tickets, client ai.Client, modelName string) *AI
 }
 
 func (s *AIRuns) Get(ctx context.Context, actor, ticketID, runID uint64) (dto.AIRun, error) {
-	return s.repo.VisibleRun(ctx, actor, ticketID, runID)
+	// VisibleRun's ordinary SELECT establishes the repeatable-read view for
+	// authorization, ticket content and messages, including POST's final read.
+	var run dto.AIRun
+	err := s.repo.Transaction(ctx, func(tx *repository.Tickets) error {
+		visible, err := tx.VisibleRun(ctx, actor, ticketID, runID)
+		if err != nil {
+			return err
+		}
+		ticket, err := tx.Find(ctx, repository.TicketScope{}, ticketID)
+		if err != nil {
+			return err
+		}
+		rows, err := tx.RecentMessages(ctx, ticketID, recentLimit+1)
+		if err != nil {
+			return err
+		}
+		_, id, _ := buildSnapshot(ticket, rows)
+		visible.IsStale = visible.InputSnapshotID != id
+		run = visible
+		return nil
+	})
+	if err != nil {
+		return dto.AIRun{}, err
+	}
+	return run, nil
 }
 
 func (s *AIRuns) Start(ctx context.Context, actor, ticketID uint64) (dto.AIRun, error) {

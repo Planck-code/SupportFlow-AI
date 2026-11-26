@@ -14,6 +14,7 @@ type AIRun struct {
 	Model           string          `json:"model"`
 	InputSnapshotID string          `json:"input_snapshot_id"`
 	InputTruncated  bool            `json:"input_truncated"`
+	IsStale         bool            `json:"is_stale" gorm:"-"`
 	Result          json.RawMessage `json:"result"`
 	ErrorCategory   *string         `json:"error_category"`
 	CreatedAt       time.Time       `json:"created_at"`

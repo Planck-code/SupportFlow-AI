@@ -128,6 +128,23 @@ go run ./cmd/api
 
 仅复现自动验收时，配置下文的独立空测试库后执行 `go test -tags=integration -count=1 -v -run '^TestAIRunsLiveMySQL$' ./tests/integration`。测试自行启动可暂停、可返回错误的本地供应商和真实 API 进程。真实供应商验收安排在 A3。
 
+## A3 人工使用 AI 建议
+
+POST 分析完成后和 GET 历史详情均返回布尔值 `is_stale`。客服使用建议前检查 `status == "succeeded"` 且 `is_stale == false`。运行中和失败的记录没有可用建议。工单有新消息时，重新分析会创建新记录。旧版 `v1:` 记录可继续查询，统一标为过时。
+
+**本地模拟演示**使用独立演示库和合成账号。沿用上面的宿主机配置，先以 `go run ./scripts/mock-ai -demo-outage` 启动模拟供应商，再以 `AI_MODEL=local-demo` 和回环地址启动 API。先在演示库初始化管理员。示例假设宿主机 API 监听 8080。
+
+```powershell
+$url = 'http://127.0.0.1:8080/api/v1'
+.\scripts\demo-ai.ps1 -BaseUrl $url -LocalMock
+```
+
+脚本提示输入管理员凭据，每次创建新的演示账号及两张工单。第一张演示用户补充消息、旧结果过时、重新分析。客服阅读摘要与建议后输入自己编辑的正文，再键入 `SEND`。脚本发送前再次查询建议，使用当前客服令牌向普通消息接口提交。第二张合成工单触发模拟供应商的预设故障，再演示人工回复、解决与关闭。记录保留在演示库。自动验收可追加 `-SimulateReview`，输出会标明这次编辑和确认由脚本模拟。仅在 API 已连接本地模拟器时使用 `-LocalMock`。
+
+**Postman 手动操作**沿用 A2 的 Bearer Token 和空 POST。在客服认领后触发分析，保存 `Location`。以用户身份向 `/tickets/:id/messages` 提交一条补充说明，再以客服身份 GET 原记录，应看到原结果及 `is_stale=true`。重新 POST 分析并 GET 新记录，核对新 ID、三个建议字段和 `is_stale=false`。阅读并编辑建议后，以客服令牌向 `POST /api/v1/tickets/:id/messages` 提交 `{"content":"人工核对并编辑后的回复"}`，核对 201 及 `author_id`。过时判断反映最近一次读取时的工单内容。
+
+**A3 功能实现及模拟验收通过，真实模型验收暂缓。** 真实供应商端到端验证作为独立待验项保留。 本轮仅授权本地模拟，真实调用 0 次。单次真实验收应在独立环境使用授权的 HTTPS `AI_BASE_URL`、`AI_API_KEY`、`AI_MODEL`、`AI_TIMEOUT` 重启 API，使用合成工单手动发送一次分析 POST。记录供应商、模型、耗时、HTTP 201 和运行 ID；核对数据库 `succeeded`、三个结果字段及 GET 的 `is_stale`，日志只保留验收元数据。
+
 ## API 与 Postman
 
 健康接口位于根路径。其余接口统一以 `/api/v1` 为前缀，登录后将 `access_token` 填入 Postman 的 Authorization → Bearer Token。
