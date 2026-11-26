@@ -19,7 +19,7 @@ import (
 
 // Start the actual cmd/api binary against the schema verified by testDatabase.
 // The child is stopped before the fixture drops any of its tables.
-func startTestAPI(t *testing.T, schema string) (baseURL, logPath string) {
+func startTestAPI(t *testing.T, schema string, extraEnv ...string) (baseURL, logPath string) {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "supportflow-api.exe")
 	if out, err := exec.Command("go", "build", "-o", binary, "../../cmd/api").CombinedOutput(); err != nil {
@@ -33,6 +33,9 @@ func startTestAPI(t *testing.T, schema string) (baseURL, logPath string) {
 	listener.Close()
 	cmd := exec.Command(binary)
 	cmd.Env = append(os.Environ(), "DB_NAME="+schema, "PORT="+port, "JWT_SECRET="+rand.Text()+rand.Text())
+	// Test processes can contact only providers explicitly supplied by the fixture.
+	cmd.Env = append(cmd.Env, "AI_BASE_URL=", "AI_API_KEY=", "AI_MODEL=", "AI_TIMEOUT=20s")
+	cmd.Env = append(cmd.Env, extraEnv...)
 	logFile, err := os.CreateTemp(t.TempDir(), "api-*.log")
 	if err != nil {
 		t.Fatal(err)

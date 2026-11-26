@@ -18,7 +18,7 @@ import (
 	"github.com/Planck-code/SupportFlow-AI/internal/database"
 )
 
-const latestVersion = 4
+const latestVersion = 5
 
 // Each test owns an initially empty dedicated schema. Never run these tests in parallel.
 func testDatabase(t *testing.T) (*gorm.DB, *migrate.Migrate) {
@@ -64,7 +64,7 @@ func testDatabase(t *testing.T) (*gorm.DB, *migrate.Migrate) {
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
-		for _, statement := range []string{"DROP TABLE IF EXISTS ticket_messages", "DROP TABLE IF EXISTS ticket_events", "DROP TABLE IF EXISTS tickets", "DROP TABLE IF EXISTS users", "DROP TABLE IF EXISTS schema_migrations"} {
+		for _, statement := range []string{"DROP TABLE IF EXISTS ai_runs", "DROP TABLE IF EXISTS ticket_messages", "DROP TABLE IF EXISTS ticket_events", "DROP TABLE IF EXISTS tickets", "DROP TABLE IF EXISTS users", "DROP TABLE IF EXISTS schema_migrations"} {
 			if err := db.WithContext(cleanupCtx).Exec(statement).Error; err != nil {
 				t.Error("cannot clean owned test tables; inspect test schema before rerunning")
 			}
@@ -138,9 +138,24 @@ func TestDatabaseAndMigrations(t *testing.T) {
 		  AND (column_name, referenced_table_name) IN (('ticket_id','tickets'), ('author_id','users'))`).Scan(&foreignKeys).Error; err != nil || foreignKeys != 2 {
 		t.Fatal("missing message foreign keys")
 	}
-	if err := runner.Up(); !errors.Is(err, migrate.ErrNoChange) {
-		t.Fatal("repeated up should report no change")
+	if err := runner.Steps(1); err != nil {
+		t.Fatal(err)
 	}
+	assertVersion(t, runner, 5)
+	if !db.Migrator().HasTable("ai_runs") || !db.Migrator().HasIndex("ai_runs", "idx_ai_runs_ticket") {
+		t.Fatal("missing AI schema")
+	}
+	if err := runner.Up(); !errors.Is(err, migrate.ErrNoChange) {
+		t.Fatal("expected no change at version 5")
+	}
+	if err := runner.Steps(-1); err != nil {
+		t.Fatal(err)
+	}
+	assertVersion(t, runner, 4)
+	if db.Migrator().HasTable("ai_runs") || !db.Migrator().HasTable("ticket_messages") {
+		t.Fatal("AI down did not preserve v4 schema")
+	}
+
 	if err := runner.Steps(-1); err != nil {
 		t.Fatal(err)
 	}

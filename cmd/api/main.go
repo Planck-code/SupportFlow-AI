@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,9 +10,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Planck-code/SupportFlow-AI/internal/ai"
 	"github.com/Planck-code/SupportFlow-AI/internal/auth"
 	"github.com/Planck-code/SupportFlow-AI/internal/config"
 	"github.com/Planck-code/SupportFlow-AI/internal/database"
+	"github.com/Planck-code/SupportFlow-AI/internal/handler"
 	"github.com/Planck-code/SupportFlow-AI/internal/middleware"
 	"github.com/Planck-code/SupportFlow-AI/internal/repository"
 	"github.com/Planck-code/SupportFlow-AI/internal/router"
@@ -68,7 +69,16 @@ func main() {
 		logger.Error("cannot initialize login service")
 		os.Exit(1)
 	}
-	tickets := handler.Tickets{Service: service.NewTicketService(repository.NewTickets(db))}
+	ticketRepo := repository.NewTickets(db)
+	var aiClient ai.Client
+	aiCfg, err := config.LoadAI()
+	if err == nil {
+		aiClient, err = ai.NewClient(aiCfg)
+	}
+	if err != nil {
+		logger.Info("AI analysis unavailable")
+	}
+	tickets := handler.Tickets{Service: service.NewTicketService(ticketRepo), AI: service.NewAIRuns(ticketRepo, aiClient, aiCfg.Model)}
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
 		Handler:           router.New(logger, pool, registration, login, middleware.Authenticate(tokens, users), users, tickets),

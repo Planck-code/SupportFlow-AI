@@ -39,6 +39,8 @@ func New(logger *slog.Logger, db handler.Pinger, registration *service.Registrat
 	group.GET("/queue", middleware.RequireRole(model.RoleAgent), tickets.Queue)
 	group.GET("/:id", tickets.Detail)
 	group.GET("/:id/events", tickets.Events)
+	group.POST("/:id/ai-runs", middleware.RequireRole(model.RoleAgent), tickets.StartAI)
+	group.GET("/:id/ai-runs/:run_id", middleware.RequireRole(model.RoleAgent, model.RoleAdmin), tickets.GetAI)
 	group.GET("/:id/messages", tickets.Messages)
 	group.POST("/:id/messages", middleware.RequireRole(model.RoleUser, model.RoleAgent), tickets.Reply)
 	group.POST("/:id/claim", middleware.RequireRole(model.RoleAgent), tickets.Claim)

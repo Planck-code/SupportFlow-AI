@@ -65,7 +65,7 @@ DemoCompose run --rm tools up
 DemoCompose run --rm tools version
 ```
 
-空库会依次执行 000001～000004，预期输出 `version=4`、`dirty=false`。再次执行 `up` 可以安全重复。API 的容器入口只启动 HTTP 服务。工具镜像默认运行 `/app/migrate`，工作目录 `/app` 内包含完整的 `migrations/`。
+空库会依次执行 000001～000005，预期输出 `version=5`、`dirty=false`。再次执行 `up` 可以安全重复。API 的容器入口只启动 HTTP 服务。工具镜像默认运行 `/app/migrate`，工作目录 `/app` 内包含完整的 `migrations/`。
 
 **3. 初始化首个管理员并启动 API。** 记住输入的密码，演示脚本需要使用这个已有管理员。重复执行初始化命令遇到相同邮箱会报冲突，已有账号可直接登录。
 
@@ -97,7 +97,7 @@ DemoCompose ps
 
 ## A1 模型调用组件
 
-`internal/ai` 支持非流式 Chat Completions。现有 MVP 可沿用上面的启动命令，AI 配置留空即可。需要使用客户端的 Go 代码显式调用 `config.LoadAI()`、`ai.NewClient(cfg)`，复用返回的客户端，以 `Complete(ctx, messages)` 取得助手文本。本阶段的注册、工单接口和健康探针均不触发模型调用。
+`internal/ai` 支持非流式 Chat Completions。API 启动时尝试加载配置并构造一个共享客户端。只在当前负责客服主动触发工单分析时联系模型。配置留空或校验失败时，注册、工单操作、健康检查和 AI 历史查询仍可使用。
 
 | 环境变量 | 含义 |
 |---|---|
@@ -107,6 +107,26 @@ DemoCompose ps
 | `AI_TIMEOUT` | 正的 Go duration，例如 `20s`。默认 20 秒；调用者更早取消或到期时提前结束 |
 
 测试命令为 `go test -count=1 -v ./internal/ai/... ./internal/config`。协议测试在本机用 `httptest` 启动模拟供应商；业务测试可注入 `aitest.Fake`。真实供应商验证安排在 A3。超时、取消、网络、HTTP 状态和非法输出的判断方式见[架构说明](docs/ARCHITECTURE.md#71-a1-模型通信)。
+
+## A2 工单分析与 Postman 验收
+
+先执行迁移 `up`，用 `version` 确认版本 5、`dirty=false`。在宿主机使用两个 PowerShell 窗口，可以用固定响应复现完整流程。
+
+1. 在第一个窗口运行 `go run ./scripts/mock-ai`。它监听本机 `127.0.0.1:19090`，返回固定的分类、摘要和回复建议。
+2. 在第二个窗口按下文「宿主机 Go 开发与测试」导入数据库和 JWT 环境变量，再运行下列命令。此处用宿主机 API，使两个进程共享本机回环地址。
+
+```powershell
+$env:AI_BASE_URL = 'http://127.0.0.1:19090/v1'
+$env:AI_MODEL = 'local-demo'
+$env:AI_API_KEY = [guid]::NewGuid().ToString('N')
+go run ./cmd/api
+```
+
+3. 在 Postman 中让用户创建工单、客服认领。使用该客服的 Bearer Token，向 `/api/v1/tickets/:id/ai-runs` 发送无正文的 POST。预期 201，响应中有 `id`、`status=succeeded`、`input_snapshot_id`、`input_truncated` 和 `result` 的三个字段。
+4. 复制响应头 `Location` 的相对路径，在同一 API 上发送 GET。管理员和当前负责人可读。转派后，旧客服 GET 得到 404，新客服 GET 得到 200。普通用户访问这两个接口均得到 403。
+5. 停止模拟服务、保持 API 运行，再以当前负责客服触发一次。连接失败返回 502，错误体含 `code/message/request_id`。按响应头 `Location` 查询，可看到 `failed`、`error_category=network`、`finished_at` 和空结果。模型超时返回 504。AI 配置缺失时返回 503，此时不会创建调用记录。
+
+仅复现自动验收时，配置下文的独立空测试库后执行 `go test -tags=integration -count=1 -v -run '^TestAIRunsLiveMySQL$' ./tests/integration`。测试自行启动可暂停、可返回错误的本地供应商和真实 API 进程。真实供应商验收安排在 A3。
 
 ## API 与 Postman
 
@@ -127,6 +147,8 @@ DemoCompose ps
 | `POST /tickets/:id/resolve` | 当前客服解决处理中工单 |
 | `POST /tickets/:id/reopen` | 所属用户重开已解决工单 |
 | `POST /tickets/:id/close` | 所属用户或管理员关闭已解决工单 |
+| `POST /tickets/:id/ai-runs` | 当前负责客服触发处理中的工单分析，空正文或 `{}` |
+| `GET /tickets/:id/ai-runs/:run_id` | 当前负责客服或管理员查询运行记录，所有工单状态均可读取 |
 
 手动演示时，用户先提交 `{"title":"登录问题","description":"重置密码后仍无法登录"}`，保存返回的 ID。切换客服令牌发送空 POST 到 `/claim`，双方用 `{"content":"已经重试"}` 回复。客服提交 `{"priority":"high"}` 并解决，用户重开后补充消息，客服再次解决，最后由用户关闭。用 `GET /tickets/:id/events` 对照事件顺序。分角色的请求和预期错误码见 [Postman 分步操作](docs/MVP-HISTORY.md#m9-工单处理闭环)。
 
@@ -175,7 +197,7 @@ go test -tags=integration -count=1 -v ./tests/integration
 | 镜像拉取或模块下载失败 | 核对 Docker Desktop 已运行、Linux 引擎与代理可达，分别尝试 `docker pull golang:1.27-alpine`、`docker pull alpine:3.23`、`docker pull mysql:8.4.13`。检查 BuildKit 对 Go 模块代理的连通性，恢复后重试构建 |
 | API 因 JWT_SECRET 退出 | `DemoCompose logs api` 查看配置错误。设置至少 32 字节的随机值，排查当前 shell 中覆盖文件的同名变量，再执行 `DemoCompose up -d --wait api` |
 | 就绪返回 503 | `DemoCompose ps` 与 `DemoCompose logs mysql` 检查 MySQL 健康状态、账号及连接地址。API 存活时 `/healthz` 仍返回 200 |
-| readyz 为 200，但注册或查询返回 500 | readyz 只 Ping 数据库。运行 `DemoCompose run --rm tools up` 后检查版本 4 和 dirty=false；若 dirty=true，先核对失败迁移和实际结构 |
+| readyz 为 200，但注册或查询返回 500 | readyz 只 Ping 数据库。运行 `DemoCompose run --rm tools up` 后检查版本 5 和 dirty=false；若 dirty=true，先核对失败迁移和实际结构 |
 | 修改 env 密码后连接失败 | MySQL 初始化变量只在空卷生效。恢复此卷对应的凭据，或通过已有授权账号显式轮换数据库密码并同步应用配置 |
 | 环境与预期不一致 | 核对 `-p`、`-f`、`--env-file`、当前 shell 变量和实际映射端口。校验配置使用 `config --quiet`；完整展开会包含凭据 |
 

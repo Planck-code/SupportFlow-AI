@@ -61,31 +61,10 @@ func TestLifecycleLiveMySQL(t *testing.T) {
 	if err := runner.Up(); err != nil {
 		t.Fatal(err)
 	}
-	assertVersion(t, runner, 4)
+	assertVersion(t, runner, latestVersion)
 	base, logPath := startTestAPI(t, os.Getenv("TEST_DATABASE_NAME"))
 	base += "/api/v1"
-	call := liveRequests(t, base)
-	reg := service.NewRegistration(repository.NewUsers(db))
-	pass := rand.Text()
-	ids := map[string]uint64{}
-	tokens := map[string]string{}
-	for name, role := range map[string]string{"admin": "admin", "owner": "user", "other": "user", "a": "agent", "b": "agent"} {
-		email := name + "@example.test"
-		if role == "user" {
-			user, err := reg.Register(context.Background(), email, pass, name)
-			if err != nil {
-				t.Fatal("cannot seed ordinary user")
-			}
-			ids[name] = user.ID
-		} else {
-			user, err := reg.CreateStaff(context.Background(), email, pass, name, role)
-			if err != nil {
-				t.Fatal("cannot seed staff")
-			}
-			ids[name] = user.ID
-		}
-		tokens[name] = call("POST", "/auth/login", "", map[string]string{"email": email, "password": pass}, 200)["access_token"].(string)
-	}
+	ids, tokens, pass := seedTicketActors(t, db, base)
 	for _, test := range []struct {
 		name string
 		run  func(lifecycleTest)
@@ -111,6 +90,33 @@ func TestLifecycleLiveMySQL(t *testing.T) {
 			t.Fatal("sensitive data in API log")
 		}
 	}
+}
+
+func seedTicketActors(t *testing.T, db *gorm.DB, base string) (map[string]uint64, map[string]string, string) {
+	t.Helper()
+	call := liveRequests(t, base)
+	reg := service.NewRegistration(repository.NewUsers(db))
+	pass := rand.Text()
+	ids := map[string]uint64{}
+	tokens := map[string]string{}
+	for name, role := range map[string]string{"admin": "admin", "owner": "user", "other": "user", "a": "agent", "b": "agent"} {
+		email := name + "@example.test"
+		if role == "user" {
+			user, err := reg.Register(context.Background(), email, pass, name)
+			if err != nil {
+				t.Fatal("cannot seed ordinary user")
+			}
+			ids[name] = user.ID
+		} else {
+			user, err := reg.CreateStaff(context.Background(), email, pass, name, role)
+			if err != nil {
+				t.Fatal("cannot seed staff")
+			}
+			ids[name] = user.ID
+		}
+		tokens[name] = call("POST", "/auth/login", "", map[string]string{"email": email, "password": pass}, 200)["access_token"].(string)
+	}
+	return ids, tokens, pass
 }
 
 func testLifecycleWorkflow(f lifecycleTest) {

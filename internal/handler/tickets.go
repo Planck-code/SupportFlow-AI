@@ -17,7 +17,10 @@ import (
 	"github.com/Planck-code/SupportFlow-AI/internal/service"
 )
 
-type Tickets struct{ Service *service.TicketService }
+type Tickets struct {
+	Service *service.TicketService
+	AI      *service.AIRuns
+}
 
 func ticketError(c *gin.Context, err error) {
 	switch {

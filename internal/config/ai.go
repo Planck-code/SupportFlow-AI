@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 var ErrAIConfig = errors.New("invalid AI configuration")
@@ -21,7 +22,7 @@ type AI struct {
 	Timeout time.Duration
 }
 
-// LoadAI is opt-in. MVP startup and the database tools never call it.
+// AI configuration errors disable analysis only. Database tools do not load it.
 func LoadAI() (AI, error) {
 	timeout, err := time.ParseDuration(envDefault("AI_TIMEOUT", "20s"))
 	if err != nil {
@@ -40,7 +41,7 @@ func (c AI) Endpoint() (string, error) {
 	if c.Timeout <= 0 {
 		return "", fmt.Errorf("%w: AI_TIMEOUT must be a positive duration", ErrAIConfig)
 	}
-	if strings.TrimSpace(c.Model) == "" || strings.TrimSpace(c.Model) != c.Model || strings.IndexFunc(c.Model, unicode.IsControl) >= 0 {
+	if !utf8.ValidString(c.Model) || utf8.RuneCountInString(c.Model) > 255 || strings.TrimSpace(c.Model) == "" || strings.TrimSpace(c.Model) != c.Model || strings.IndexFunc(c.Model, unicode.IsControl) >= 0 {
 		return "", fmt.Errorf("%w: AI_MODEL must be a nonblank model name", ErrAIConfig)
 	}
 	if c.APIKey == "" || strings.IndexFunc(c.APIKey, func(r rune) bool { return r < 33 || r > 126 }) >= 0 {

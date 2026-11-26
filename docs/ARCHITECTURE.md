@@ -1,6 +1,6 @@
 # SupportFlow AI 架构设计
 
-> 状态：第一阶段 MVP 与 A1 模型调用边界已验收。
+> 状态：第一阶段 MVP 与 A1、A2 已验收。
 > 更新日期：2026-11-26。
 > 业务规则以 [PRD.md](PRD.md) 为准，开发顺序见 [ROADMAP.md](ROADMAP.md)。
 
@@ -272,7 +272,7 @@ M7 的两个动作共用 `Tickets.Transaction`。Service 按主键用 `SELECT ..
 
 调用方显式加载 AI 配置并创建一个可复用的 `ai.Client`。基址去除末尾斜杠后只追加一次 `/chat/completions`，版本前缀由供应商决定。配置校验拒绝带凭据、查询参数或片段的 URL。远端必须使用 HTTPS 和系统 CA 校验；HTTP 仅供 localhost 或回环 IP 使用。
 
-`Complete` 接受调用者的 Context 和有序文本消息（system、user、assistant）。客户端以 Bearer 凭据 POST JSON，发送 model 和 messages，通过子 Context 将建连、等待响应及读响应体纳入同一截止时间。每次只发一次非流式 POST，禁用重定向。成功响应最多读取 1 MiB，检查 `choices[0].message.content` 为非空白字符串，随后原样返回文本。可选的 `ParseSuggestion` 提取模型文本中的 JSON 对象，要求 `category`、`summary`、`reply_suggestion` 三项为非空白字符串。工单分类枚举、业务长度、输入快照和持久化由后续任务负责。
+`Complete` 接受调用者的 Context 和有序文本消息（system、user、assistant）。客户端以 Bearer 凭据 POST JSON，发送 model 和 messages，通过子 Context 将建连、等待响应及读响应体纳入同一截止时间。每次只发一次非流式 POST，禁用重定向。成功响应最多读取 1 MiB，检查 `choices[0].message.content` 为非空白字符串，随后原样返回文本。`ParseSuggestion` 按字段逐项解析唯一 JSON 对象，拒绝重复、未知、缺失、类型错误和尾随数据。枚举及 Unicode 长度校验在持久化前完成。
 
 | 错误情况 | 调用方判断 |
 |---|---|
@@ -286,24 +286,24 @@ M7 的两个动作共用 `Tickets.Transaction`。Service 按主键用 `SELECT ..
 
 客户端关闭响应体，不记录提示词、认证头、原始响应或底层错误文本。API 镜像在构建时检查 Alpine CA 证书包可读。MVP 启动、数据库工具和 readiness 均独立于模型服务。
 
-### 7.2 后续工单调用流程
+### 7.2 A2 调用与授权
 
-1. 校验当前账号为负责客服，工单处于 `in_progress`。
-2. 短事务读取一致的工单与消息快照，保存 `running` 调用记录并提交。
-3. 在事务外调用一种供应商的模型协议，默认超时 20 秒，不自动重试。
-4. 校验结构化结果，保存 `succeeded/failed` 和结果或错误类别。
-5. 返回调用 ID 和结果；查询接口重新按当前归属授权，调用者不因历史发起行为永久获得权限。
+1. POST 通过 JWT 和客服角色中间件后，在短事务内依次锁定工单及发起人当前角色。归属不符返回 404。自己的工单须为 `in_progress`，否则返回 409。AI 配置不可用时返回 503。
+2. 在同一事务读取最近消息、生成输入摘要、插入 `running` 行。提交后归还数据库连接，再调用 A1 客户端。模型等待期间回复、转派和状态修改可继续执行。
+3. 校验模型输出。用 `WHERE id = ? AND status = 'running'` 原子写入终态、UTC 完成时间及 JSON 结果或错误类别，要求恰好影响一行。终态写入及回读共同使用脱离请求取消信号、最长 3 秒的 Context。进程退出或数据库写入失败可能留下 `running` 记录；写入失败返回 500。
+4. POST 返回之前和 GET 均使用同一个可见性查询，同时匹配工单 ID、运行 ID、当前数据库角色和当前负责人。转派后仍能保存原调用结果，原客服收到 404。状态变化不会影响仍有权限的历史读取。
+5. POST 成功返回 201。已落库、仍可见的模型失败通过 HTTP `Location` 提供 GET 路径，错误体继续使用原有三个字段。网络、上游、响应格式、建议内容错误映射为 502，超时为 504，服务不可用为 503。调用方断开后记录 `canceled`，通常已无法送达 HTTP 响应。
 
 这是同步接口，不引入后台队列或异步轮询任务框架。调用期间的记录用于审计与失败诊断，不提供恢复或重试任务 API。持久化更新失败时返回内部错误，不把未落库结果描述为已保存。
 
 ### 7.3 数据与输入快照
 
-`ai_runs` 主要字段为：`id/ticket_id/requested_by/status/provider/model/input_snapshot_id/input_truncated/result/error_category/created_at/finished_at`。新增表使用独立迁移。
+`ai_runs` 主要字段为：`id/ticket_id/requested_by/status/provider/model/input_snapshot_id/input_truncated/result/error_category/created_at/finished_at`。迁移 000005 创建外键和 `(ticket_id,id)` 索引。CHECK 将状态与可空字段绑定：运行中无结果、错误和完成时间；成功行有 JSON 对象；失败行只有有限错误类别；两个终态都有完成时间。
 
 - 一次生成建议分类、摘要和回复建议；分类必须是既定枚举，摘要上限 1000 字符，回复建议上限 5000 字符。
 - 输入包含初始标题、描述及最近最多 20 条消息，按时间顺序组织，总输入最多 12000 字符；超限优先保留初始问题和最新消息，并标记截断。
-- 输入快照标识使用工单相关输入字段及最新消息 ID 的确定性摘要；保存输入构建规则版本，不单靠秒级 `updated_at` 判断过时。
-- 查询时重新比较快照标识，返回 `is_stale`；输入或最新消息变化后旧结果应标记过时。
+- `v1:` 加 SHA-256 摘要标识模型实际收到的输入。摘要包含规则版本、工单 ID、最新消息 ID、系统消息和有序用户 JSON。预算按两个消息内容的 Unicode 字符总数计算，计入 JSON 转义。消息在同一工单锁下插入，按 ID 取最近 20 条，再恢复升序；模型只收到 `user/agent` 发言者标签。
+- A3 将在查询时比较快照标识并返回 `is_stale`。
 - 配置从环境变量读取 API 地址、模型名、API Key；不把供应商错误正文直接持久化或返回客户端。
 - 不主动发送账号邮箱、密码哈希或令牌。用户正文可能含个人信息，演示默认使用脱敏样例，不承诺自动识别所有敏感内容。
 - 工单和消息作为不可信数据传入模型，不接受其改变系统指令、调用工具或自动执行动作。
