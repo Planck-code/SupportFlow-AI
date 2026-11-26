@@ -95,6 +95,19 @@ DemoCompose ps
 
 **数据持久化。** `DemoCompose stop` 暂停演示，`DemoCompose up -d --wait api` 可以恢复服务。`DemoCompose down` 移除该项目容器及网络，命名卷保留，重建后仍可登录并查询原工单。保管好与卷配套的 env 文件和管理员凭据。
 
+## A1 模型调用组件
+
+`internal/ai` 支持非流式 Chat Completions。现有 MVP 可沿用上面的启动命令，AI 配置留空即可。需要使用客户端的 Go 代码显式调用 `config.LoadAI()`、`ai.NewClient(cfg)`，复用返回的客户端，以 `Complete(ctx, messages)` 取得助手文本。本阶段的注册、工单接口和健康探针均不触发模型调用。
+
+| 环境变量 | 含义 |
+|---|---|
+| `AI_BASE_URL` | 供应商给出的 HTTPS 基址，保留其版本前缀。例如 `https://provider.example/v1` 会请求 `/v1/chat/completions`。已有完整端点时直接使用，末尾斜杠可省略。仅回环地址允许 HTTP |
+| `AI_API_KEY` | 运行时 Bearer 密钥，填入本地忽略的 env 文件。Compose 只将模型配置传入 API 容器 |
+| `AI_MODEL` | 供应商模型标识 |
+| `AI_TIMEOUT` | 正的 Go duration，例如 `20s`。默认 20 秒；调用者更早取消或到期时提前结束 |
+
+测试命令为 `go test -count=1 -v ./internal/ai/... ./internal/config`。协议测试在本机用 `httptest` 启动模拟供应商；业务测试可注入 `aitest.Fake`。真实供应商验证安排在 A3。超时、取消、网络、HTTP 状态和非法输出的判断方式见[架构说明](docs/ARCHITECTURE.md#71-a1-模型通信)。
+
 ## API 与 Postman
 
 健康接口位于根路径。其余接口统一以 `/api/v1` 为前缀，登录后将 `access_token` 填入 Postman 的 Authorization → Bearer Token。

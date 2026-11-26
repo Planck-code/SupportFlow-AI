@@ -1,7 +1,7 @@
 # SupportFlow AI 架构设计
 
-> 状态：第一阶段 MVP（M1～M10 及 M5.1）已通过验收。
-> 更新日期：2026-11-24。
+> 状态：第一阶段 MVP 与 A1 模型调用边界已验收。
+> 更新日期：2026-11-26。
 > 业务规则以 [PRD.md](PRD.md) 为准，开发顺序见 [ROADMAP.md](ROADMAP.md)。
 
 ## 1. 单体架构与执行流程
@@ -268,7 +268,25 @@ M7 的两个动作共用 `Tickets.Transaction`。Service 按主键用 `SELECT ..
 
 ## 7. 第二阶段 AI 设计
 
-### 7.1 最小调用流程
+### 7.1 A1 模型通信
+
+调用方显式加载 AI 配置并创建一个可复用的 `ai.Client`。基址去除末尾斜杠后只追加一次 `/chat/completions`，版本前缀由供应商决定。配置校验拒绝带凭据、查询参数或片段的 URL。远端必须使用 HTTPS 和系统 CA 校验；HTTP 仅供 localhost 或回环 IP 使用。
+
+`Complete` 接受调用者的 Context 和有序文本消息（system、user、assistant）。客户端以 Bearer 凭据 POST JSON，发送 model 和 messages，通过子 Context 将建连、等待响应及读响应体纳入同一截止时间。每次只发一次非流式 POST，禁用重定向。成功响应最多读取 1 MiB，检查 `choices[0].message.content` 为非空白字符串，随后原样返回文本。可选的 `ParseSuggestion` 提取模型文本中的 JSON 对象，要求 `category`、`summary`、`reply_suggestion` 三项为非空白字符串。工单分类枚举、业务长度、输入快照和持久化由后续任务负责。
+
+| 错误情况 | 调用方判断 |
+|---|---|
+| 地址、密钥、模型或时长非法 | `errors.Is(err, config.ErrAIConfig)`，提示配置字段名 |
+| 输入消息不符合约定 | `errors.Is(err, ai.ErrInput)` |
+| 调用超时、调用方主动取消 | 分别匹配 `context.DeadlineExceeded`、`context.Canceled` |
+| 建连、TLS 或响应体传输失败 | `errors.Is(err, ai.ErrNetwork)` |
+| 上游返回非 2xx（含重定向） | `errors.As` 取得 `*ai.UpstreamError`，仅保留 StatusCode |
+| 响应过大、非法 JSON 或 choices/message 结构损坏 | `errors.Is(err, ai.ErrResponse)` |
+| 助手输出为空、非文本或建议 JSON 基础字段非法 | `errors.Is(err, ai.ErrOutput)` |
+
+客户端关闭响应体，不记录提示词、认证头、原始响应或底层错误文本。API 镜像在构建时检查 Alpine CA 证书包可读。MVP 启动、数据库工具和 readiness 均独立于模型服务。
+
+### 7.2 后续工单调用流程
 
 1. 校验当前账号为负责客服，工单处于 `in_progress`。
 2. 短事务读取一致的工单与消息快照，保存 `running` 调用记录并提交。
@@ -278,7 +296,7 @@ M7 的两个动作共用 `Tickets.Transaction`。Service 按主键用 `SELECT ..
 
 这是同步接口，不引入后台队列或异步轮询任务框架。调用期间的记录用于审计与失败诊断，不提供恢复或重试任务 API。持久化更新失败时返回内部错误，不把未落库结果描述为已保存。
 
-### 7.2 数据与输入快照
+### 7.3 数据与输入快照
 
 `ai_runs` 主要字段为：`id/ticket_id/requested_by/status/provider/model/input_snapshot_id/input_truncated/result/error_category/created_at/finished_at`。新增表使用独立迁移。
 

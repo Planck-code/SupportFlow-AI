@@ -41,6 +41,10 @@ services:
       <<: *app-db
       PORT: "8080"
       JWT_SECRET: ${JWT_SECRET:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_TIMEOUT: ${AI_TIMEOUT:-20s}
     depends_on:
       mysql:
         condition: service_healthy

@@ -18,6 +18,8 @@ COPY migrations ./migrations
 ENTRYPOINT ["/app/migrate"]
 
 FROM runtime AS api
+# Go's default TLS verifier on Alpine uses the distribution CA bundle.
+RUN test -s /etc/ssl/certs/ca-certificates.crt && test -r /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/api ./
 EXPOSE 8080
 HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=5 \
